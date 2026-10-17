@@ -20,6 +20,8 @@ export const config = {
   envFile,
   dbDir: path.join(dataDir, 'pg'),
   uploadDir: path.join(dataDir, 'uploads'),
+  // Finished backup files are safe to keep in a synced folder (unlike the live database).
+  backupDir: path.resolve(ROOT_DIR, process.env.BACKUP_DIR ?? path.join(dataDir, 'backups')),
   webDist: path.join(ROOT_DIR, 'web', 'dist'),
   model: process.env.LEDGERAI_MODEL ?? 'claude-opus-5-5',
   aiEnabled: Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),

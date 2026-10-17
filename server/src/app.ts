@@ -27,6 +27,12 @@ export async function buildApp(db: PGlite, opts: { serveWeb?: boolean } = {}): P
   // Every API call except the public ones needs a valid session.
   app.addHook('onRequest', async (req: FastifyRequest) => {
     if (!req.url.startsWith('/api/')) return;
+    // Changes may only come from this app's own pages. The session cookie is SameSite=Lax, but every other
+    // port on localhost counts as the same site, so a page served by another local program could post here.
+    const fetchSite = req.headers['sec-fetch-site'];
+    if (req.method !== 'GET' && req.method !== 'HEAD' && (fetchSite === 'cross-site' || fetchSite === 'same-site')) {
+      throw new AppError('CROSS_SITE', 403, 'Requests from other sites are not accepted.');
+    }
     req.user = await userForToken(db, readCookie(req.headers.cookie, SESSION_COOKIE));
     const path = req.url.split('?')[0];
     if (!req.user && !PUBLIC.some((re) => re.test(path))) {

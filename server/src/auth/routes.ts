@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { PGlite } from '@electric-sql/pglite';
 import { AppError } from '../lib/errors';
 import {
-  addCompany, addDemo, clearCookie, createSession, endSession, login, memberships, readCookie,
+  addCompany, addDemo, clearCookie, createSession, endSession, isAdmin, login, memberships, readCookie,
   SESSION_COOKIE, sessionCookie, signup, type User,
 } from './auth';
 
@@ -19,12 +19,12 @@ export function registerAuthRoutes(app: FastifyInstance, db: PGlite) {
   const startSession = async (req: FastifyRequest, reply: FastifyReply, user: User) => {
     const { token, expires } = await createSession(db, user.id, req.headers['user-agent'] ?? null);
     reply.header('Set-Cookie', sessionCookie(token, expires, isHttps(req)));
-    return { user, companies: await memberships(db, user.id) };
+    return { user, companies: await memberships(db, user.id), isAdmin: await isAdmin(db, user.id) };
   };
 
   app.get('/api/v1/auth/me', async (req) => {
     if (!req.user) throw new AppError('UNAUTHENTICATED', 401, 'Please log in.');
-    return { user: req.user, companies: await memberships(db, req.user.id) };
+    return { user: req.user, companies: await memberships(db, req.user.id), isAdmin: await isAdmin(db, req.user.id) };
   });
 
   app.post('/api/v1/auth/signup', async (req, reply) => {

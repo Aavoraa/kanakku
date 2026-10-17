@@ -6,6 +6,7 @@ import { percentToPpm } from '../lib/money';
 import { KNOWN_GST_RATES_PPM } from '../tax/india-gst';
 import { wordsToNumber } from './voice/normalize';
 import type { ParsedBill } from './bill-schema';
+import { lineTaxable } from './bill-numbers';
 import type { Company } from '../ledger/context';
 
 export interface Issue {
@@ -55,7 +56,8 @@ export async function validateBill(db: Db, company: Company, bill: ParsedBill, m
   // Invoice arithmetic.
   const grand = num(bill.totals.grand_total.value);
   if (!grand) add('error', 'TOTAL_MISSING', 'totals.grand_total', 'Grand total could not be read.');
-  const taxable = sum(bill.line_items.map((l) => num(l.taxable_value)));
+  // Lines that print only quantity x price, or only a line total, count too (as the draft does).
+  const taxable = sum(bill.line_items.map((l) => lineTaxable(l)));
   const charges = sum(bill.charges.map((c) => num(c.amount)));
   const lineTax = sum(bill.line_items.flatMap((l) => [num(l.cgst), num(l.sgst), num(l.igst), num(l.cess)]));
   const summaryTax = sum(bill.tax_summary.flatMap((r) => [num(r.cgst), num(r.sgst), num(r.igst), num(r.cess)]));
@@ -75,8 +77,11 @@ export async function validateBill(db: Db, company: Company, bill: ParsedBill, m
   const igst = sum(bill.line_items.map((l) => num(l.igst))).plus(sum(bill.tax_summary.map((r) => num(r.igst))));
   const cgst = sum(bill.line_items.map((l) => num(l.cgst))).plus(sum(bill.tax_summary.map((r) => num(r.cgst))));
   const sgst = sum(bill.line_items.map((l) => num(l.sgst))).plus(sum(bill.tax_summary.map((r) => num(r.sgst))));
+  // Our own invoices are compared with our state. A bill we received is compared with its printed place of
+  // supply, which is not always our state (a hotel stay in another state is CGST + SGST of that state).
+  const compareWith = bc.role === 'issued' ? company.state_code : stateCodeFrom(bill.place_of_supply) ?? company.state_code;
   if (supplierState) {
-    const intra = supplierState === company.state_code;
+    const intra = supplierState === compareWith;
     const who = bc.role === 'issued' ? 'Customer' : 'Supplier';
     if (intra && igst.gt(0)) add('error', 'TAX_SPLIT', 'line_items', `${who} is in your state but the document charges IGST; expected CGST + SGST.`);
     if (!intra && (cgst.gt(0) || sgst.gt(0))) add('error', 'TAX_SPLIT', 'line_items', `${who} is in another state but the document charges CGST/SGST; expected IGST.`);

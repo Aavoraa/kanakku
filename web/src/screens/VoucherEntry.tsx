@@ -5,7 +5,7 @@ import { useKeys } from '../keys';
 import { Picker, type Option } from '../components/Picker';
 import { ItemForm, LedgerForm, PartyForm } from '../components/QuickCreate';
 import { ErrorBox, Kbd, ScreenHead } from '../components/ui';
-import { inr, pct, toMinor, fromMinor, TYPE_LABEL, uid } from '../format';
+import { inr, multiplyAmount, pct, toMinor, fromMinor, TYPE_LABEL, uid } from '../format';
 
 const TRADING: VoucherType[] = ['SALES', 'PURCHASE', 'CREDIT_NOTE', 'DEBIT_NOTE'];
 const SWITCH: Record<string, VoucherType> = { F4: 'CONTRA', F5: 'PAYMENT', F6: 'RECEIPT', F7: 'JOURNAL', F8: 'SALES', F9: 'PURCHASE', 'Alt+F6': 'CREDIT_NOTE', 'Alt+F5': 'DEBIT_NOTE' };
@@ -95,17 +95,27 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
     return { ...base, entries: lines };
   }, [type, date, narration, trading, items, partyId, mode, bankId, refNo, refDate, originalRef, inclusive, rcm, entries]);
 
+  // A line with an amount that cannot be read ("55OO") would otherwise be left out of the voucher without a word.
+  const badAmount = useMemo(() => {
+    const rows = trading ? items : entries;
+    const i = rows.findIndex((r) => r.amount.trim() !== '' && toMinor(r.amount) === null);
+    return i < 0 ? null : `Line ${i + 1}: "${rows[i].amount}" is not an amount. Use digits only, like 5500 or 5500.50.`;
+  }, [trading, items, entries]);
+
   // ---------- live preview ----------
   useEffect(() => {
     const input = buildInput(true);
     setPendingWarnings(null);
+    if (badAmount) { setPreview(null); setError({ message: badAmount }); return; }
     if (!input || (trading && mode === 'CREDIT' && !partyId)) { setPreview(null); setError(null); return; }
+    // Only the newest preview may land; an older, slower reply would show the wrong tax and total.
+    let live = true;
     const t = setTimeout(async () => {
-      try { setPreview(await api.post<Preview>(c('/vouchers/preview'), input)); setError(null); }
-      catch (e) { setPreview(null); setError(e instanceof ApiError ? { message: e.message, details: e.details } : { message: String(e) }); }
+      try { const p = await api.post<Preview>(c('/vouchers/preview'), input); if (live) { setPreview(p); setError(null); } }
+      catch (e) { if (live) { setPreview(null); setError(e instanceof ApiError ? { message: e.message, details: e.details } : { message: String(e) }); } }
     }, 250);
-    return () => clearTimeout(t);
-  }, [buildInput, trading, mode, partyId]);
+    return () => { live = false; clearTimeout(t); };
+  }, [buildInput, trading, mode, partyId, badAmount]);
 
   const entryDiff = useMemo(() => entries.reduce((s, e) => s + (toMinor(e.amount || '0') ?? 0n) * (e.side === 'DR' ? 1n : -1n), 0n), [entries]);
 
@@ -129,6 +139,7 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
 
   const post = async () => {
     if (busy) return;
+    if (badAmount) { setError({ message: badAmount }); return; }
     const input = buildInput(pendingWarnings !== null);
     if (!input) { setError({ message: 'The voucher is incomplete.' }); return; }
     setBusy(true);
@@ -193,8 +204,8 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
       if (r.key !== key) return r;
       const n = { ...r, ...patch };
       if (('qty' in patch || 'rate' in patch) && !n.amountTouched && n.qty && n.rate) {
-        const q = Number(n.qty), p = Number(n.rate);
-        if (Number.isFinite(q) && Number.isFinite(p)) n.amount = (q * p).toFixed(2);
+        const amount = multiplyAmount(n.qty, n.rate);
+        if (amount !== null) n.amount = amount;
       }
       return n;
     });

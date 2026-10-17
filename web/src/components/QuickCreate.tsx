@@ -10,14 +10,14 @@ export function PartyForm({ initialName = '', kind: initialKind = 'CUSTOMER', on
   initialName?: string; kind?: 'CUSTOMER' | 'SUPPLIER'; onDone: (id: string) => void; onClose: () => void;
 }) {
   const { status, refreshMasters, toast } = useApp();
-  const [f, setF] = useState({ name: initialName, kind: initialKind, gstin: '', stateCode: '', city: '', phone: '', creditDays: '', openingBalance: '' });
+  const [f, setF] = useState({ name: initialName, kind: initialKind, gstin: '', stateCode: '', city: '', phone: '', creditDays: '', openingBalance: '', regType: '' });
   const [err, setErr] = useState<Err>(null);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const save = async () => {
     try {
       const r = await api.post<{ id: string }>(c('/parties'), {
         ...f, gstin: f.gstin || null, stateCode: f.stateCode || null, creditDays: f.creditDays ? Number(f.creditDays) : null,
-        openingBalance: f.openingBalance || null,
+        openingBalance: f.openingBalance || null, regType: f.regType || null,
       });
       await refreshMasters();
       toast(`Created ${f.name}`);
@@ -39,6 +39,14 @@ export function PartyForm({ initialName = '', kind: initialKind = 'CUSTOMER', on
           <select value={f.stateCode} onChange={set('stateCode')}>
             <option value="">—</option>
             {Object.entries(status.states).map(([k, v]) => <option key={k} value={k}>{k} {v}</option>)}
+          </select>
+        </label>
+        <label>GST registration
+          <select value={f.regType} onChange={set('regType')}>
+            <option value="">{f.gstin ? 'Regular' : 'Unregistered'}</option>
+            <option value="COMPOSITION">Composition dealer</option>
+            <option value="SEZ">SEZ unit or developer (always IGST)</option>
+            <option value="OVERSEAS">Overseas, import / export (always IGST)</option>
           </select>
         </label>
         <label>City<input value={f.city} onChange={set('city')} /></label>

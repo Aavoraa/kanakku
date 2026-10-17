@@ -38,7 +38,10 @@ function writeEnvKey(key: string | null) {
   else if (at >= 0) lines[at] = `ANTHROPIC_API_KEY=${key}`;
   else lines.unshift(`ANTHROPIC_API_KEY=${key}`);
   while (lines.length && lines[lines.length - 1] === '') lines.pop();
-  fs.writeFileSync(config.envFile, `${lines.join('\n')}\n`, { mode: 0o600 });
+  // Write a temporary file and rename it over .env, so a crash mid-write cannot leave .env half-written.
+  const tmp = `${config.envFile}.tmp`;
+  fs.writeFileSync(tmp, `${lines.join('\n')}\n`, { mode: 0o600 });
+  fs.renameSync(tmp, config.envFile);
 }
 
 /** Proves a key works. Listing models costs nothing. Replaced in tests. */

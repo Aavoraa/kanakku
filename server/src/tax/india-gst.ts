@@ -18,6 +18,8 @@ export interface GstOptions {
   placeOfSupply: string;
   pricesIncludeTax: boolean;
   roundToRupee: boolean;
+  /** Supplies to an SEZ, or exports, are inter-state (IGST) whatever the states (IGST Act s.7(5)). */
+  forceInterState?: boolean;
 }
 
 export interface TaxComponentLine {
@@ -43,7 +45,7 @@ export interface GstResult {
  * on absolute values and the posting rules flip the sign.
  */
 export function computeGst(lines: TaxInputLine[], o: GstOptions): GstResult {
-  const intra = o.supplierState === o.placeOfSupply;
+  const intra = !o.forceInterState && o.supplierState === o.placeOfSupply;
   const local: Component = UT_NO_LEGISLATURE.has(o.placeOfSupply) ? 'UTGST' : 'SGST';
   const taxes: TaxComponentLine[] = [];
   const byLine = new Map<number, bigint>();

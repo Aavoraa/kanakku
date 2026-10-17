@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "reset-db": "tsx src/scripts/reset-db.ts",
     "reset-password": "tsx src/scripts/reset-password.ts",
+    "restore-backup": "tsx src/scripts/restore-backup.ts",
     "demo:bill": "tsx src/scripts/demo-bill.ts",
     "samples": "tsx src/scripts/make-samples.ts"
   },

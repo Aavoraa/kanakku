@@ -16,6 +16,8 @@ export interface PostOptions {
   idempotencyKey: string;
   userId: string;
   draftId?: string | null;
+  /** Alter checks stock once, after both the reversal and the corrected voucher are in. */
+  skipStockCheck?: boolean;
 }
 
 export interface PostedVoucher {
@@ -132,6 +134,9 @@ export async function postInTx(tx: Db, companyId: string, input: VoucherInput, o
       taxLines: plan.taxLines,
       inventory: plan.inventory,
     });
+    if (!opts.skipStockCheck) {
+      await assertStockNeverNegative(tx, companyId, plan.inventory.filter((m) => m.qty.lt(0)).map((m) => m.itemId), input.date);
+    }
     if (opts.draftId) {
       await tx.query(`UPDATE voucher_drafts SET status = 'POSTED', posted_voucher_id = $2, updated_at = now() WHERE id = $1`, [opts.draftId, v.id]);
     }
@@ -162,6 +167,29 @@ async function assertStockAvailable(tx: Db, companyId: string, date: string, inv
     const onHand = await qtyOnHand(tx, companyId, itemId, date);
     if (onHand.lt(qty)) {
       throw new AppError('NEGATIVE_STOCK', 422, `Only ${onHand.toString()} of ${item.name} in stock on ${date}; this voucher needs ${qty.toString()}`);
+    }
+  }
+}
+
+/**
+ * Stock of each item must not fall below zero on any day from `from` onwards. Checking only the voucher's own
+ * date misses a backdated sale, or a reversed purchase, whose goods later vouchers have already sold.
+ */
+async function assertStockNeverNegative(tx: Db, companyId: string, itemIds: string[], from: string) {
+  for (const itemId of new Set(itemIds)) {
+    const item = await one<{ name: string; allow_negative: boolean }>(tx, `SELECT name, allow_negative FROM stock_items WHERE id = $1`, [itemId]);
+    if (item.allow_negative) continue;
+    const low = await maybeOne<{ d: string; bal: string }>(tx,
+      `WITH daily AS (
+         SELECT voucher_date, SUM(qty) AS q FROM inventory_entries WHERE company_id = $1 AND item_id = $2 GROUP BY voucher_date
+       ), running AS (
+         SELECT voucher_date, SUM(q) OVER (ORDER BY voucher_date) AS bal FROM daily
+       )
+       SELECT voucher_date::text AS d, bal::text AS bal FROM running WHERE voucher_date >= $3 ORDER BY bal, voucher_date LIMIT 1`,
+      [companyId, itemId, from]);
+    if (low && new Decimal(low.bal).lt(0)) {
+      throw new AppError('NEGATIVE_STOCK', 422,
+        `Not enough ${item.name}: with this change, stock would fall to ${low.bal} on ${low.d}, because later vouchers already use it.`);
     }
   }
 }
@@ -281,7 +309,7 @@ async function insertPosted(tx: Db, r: PostedRecord): Promise<{ id: string; chai
 export const bigintJson = (_k: string, v: unknown) => (typeof v === 'bigint' ? v.toString() : v);
 
 /** Posts the mirror image of a voucher. The original stays; reports net the two to zero. */
-type ReverseOptions = { userId: string; source: Source; date?: string; idempotencyKey?: string };
+type ReverseOptions = { userId: string; source: Source; date?: string; idempotencyKey?: string; skipStockCheck?: boolean };
 
 export async function reverseVoucher(db: PGlite, companyId: string, voucherId: string, opts: ReverseOptions): Promise<PostedVoucher> {
   return db.transaction((tx) => reverseInTx(tx, companyId, voucherId, opts));
@@ -341,6 +369,10 @@ export async function reverseInTx(tx: Db, companyId: string, voucherId: string, 
         unitCost: m.unit_cost === null ? null : new Decimal(m.unit_cost),
       })),
     });
+    if (!opts.skipStockCheck) {
+      // Reversing a purchase takes its goods back out; they may already have been sold.
+      await assertStockNeverNegative(tx, companyId, inv.filter((m) => new Decimal(m.qty).gt(0)).map((m) => m.item_id), date);
+    }
     await audit(tx, companyId, opts.userId, opts.source, 'REVERSE', 'voucher', voucherId, null, { reversal: posted.id, voucherNo });
     return { id: posted.id, voucherNo, voucherType: v.base_type, date, totalMinor: v.total_minor, alreadyPosted: false };
   }
@@ -378,8 +410,12 @@ export async function audit(db: Db, companyId: string, actor: string, channel: s
 export async function alterVoucher(db: PGlite, companyId: string, voucherId: string, raw: unknown, opts: PostOptions) {
   const input = parseInput(raw);
   return db.transaction(async (tx) => {
-    const reversal = await reverseInTx(tx, companyId, voucherId, { userId: opts.userId, source: opts.source, idempotencyKey: `alter-reverse:${opts.idempotencyKey}` });
-    const posted = await postInTx(tx, companyId, input, opts);
+    const reversal = await reverseInTx(tx, companyId, voucherId, { userId: opts.userId, source: opts.source, idempotencyKey: `alter-reverse:${opts.idempotencyKey}`, skipStockCheck: true });
+    const posted = await postInTx(tx, companyId, input, { ...opts, skipStockCheck: true });
+    // Stock is checked on the net result: correcting a purchase whose goods were sold is fine if the corrected one still covers them.
+    const items = await many<{ item_id: string }>(tx, `SELECT DISTINCT item_id FROM inventory_entries WHERE voucher_id = ANY($1::uuid[])`, [[reversal.id, posted.id]]);
+    const from = reversal.date < posted.date ? reversal.date : posted.date;
+    await assertStockNeverNegative(tx, companyId, items.map((r) => r.item_id), from);
     return { reversal, posted };
   });
 }

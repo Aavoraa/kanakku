@@ -15,7 +15,11 @@ async function request<T>(method: string, url: string, body?: unknown, headers: 
   }
   const res = await fetch(url, init);
   const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch {
+    // Not JSON: a proxy error page, or the server stopped mid-request.
+    throw new ApiError(res.status, 'BAD_RESPONSE', res.ok ? 'The server sent an unexpected reply.' : `The server is not responding (${res.status} ${res.statusText}). Is it still running?`, null);
+  }
   if (!res.ok) {
     if (res.status === 401 && !url.startsWith('/api/v1/auth/')) for (const fn of unauthListeners) fn();
     throw new ApiError(res.status, data?.code ?? 'HTTP', data?.message ?? res.statusText, data?.details ?? null);

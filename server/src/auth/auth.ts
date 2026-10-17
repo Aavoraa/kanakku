@@ -52,6 +52,19 @@ export async function endSession(db: Db, token: string | null) {
   if (token) await db.query(`DELETE FROM user_sessions WHERE token_hash = $1`, [sha256(token)]);
 }
 
+export async function purgeExpiredSessions(db: Db) {
+  await db.query(`DELETE FROM user_sessions WHERE expires_at <= now()`);
+}
+
+/**
+ * The installation's administrator: the first account created on this server. Settings that affect every
+ * company here (the AI key, whole-database backups) are theirs alone, since anyone who signs up owns their own company.
+ */
+export async function isAdmin(db: Db, userId: string): Promise<boolean> {
+  const first = await maybeOne<{ id: string }>(db, `SELECT id FROM users ORDER BY created_at, id LIMIT 1`);
+  return first?.id === userId;
+}
+
 export async function memberships(db: Db, userId: string): Promise<Membership[]> {
   return many<Membership>(db,
     `SELECT c.id, c.name, c.gstin, c.state_code AS "stateCode", m.role
@@ -76,6 +89,8 @@ function checkLock(email: string) {
   }
 }
 function noteFailure(email: string) {
+  // Keep the map from growing without bound when someone tries many different emails.
+  if (failures.size > 10_000) for (const [k, v] of failures) if (v.until <= Date.now()) failures.delete(k);
   const f = failures.get(email);
   const count = f && f.until > Date.now() ? f.count + 1 : 1;
   failures.set(email, { count, until: Date.now() + LOCK_MS });
@@ -160,6 +175,7 @@ export async function login(db: Db, emailRaw: string, password: string): Promise
   }
   failures.delete(email);
   await db.query(`UPDATE users SET last_login_at = now() WHERE id = $1`, [row.id]);
+  await db.query(`DELETE FROM user_sessions WHERE user_id = $1 AND expires_at <= now()`, [row.id]);
   return { id: row.id, email: row.email, name: row.name, phone: row.phone };
 }
 

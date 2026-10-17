@@ -3,6 +3,7 @@ import { api, c, ApiError, type Preview } from '../api';
 import { useApp, type Route } from '../state';
 import { useKeys } from '../keys';
 import { Kbd } from './ui';
+import { SpeechNotice } from './Privacy';
 import { inr } from '../format';
 
 type VLang = 'en' | 'ta' | 'tanglish';
@@ -45,11 +46,23 @@ const loadLang = (): VLang => { try { const v = localStorage.getItem(LANG_KEY); 
 const saveLang = (l: VLang) => { try { localStorage.setItem(LANG_KEY, l); } catch { /* storage blocked */ } };
 const loadMuted = () => { try { return localStorage.getItem(MUTE_KEY) === '1'; } catch { return false; } };
 const saveMuted = (m: boolean) => { try { localStorage.setItem(MUTE_KEY, m ? '1' : '0'); } catch { /* storage blocked */ } };
-const WAKE_KEY = 'kannaku.wakeWord';
-// On unless the user switched it off.
-const loadWake = () => { try { return localStorage.getItem(WAKE_KEY) !== '0'; } catch { return true; } };
-const NOTICE_KEY = 'kannaku.wakeNoticeShown';
+// Off until the user turns it on and agrees to the notice. A new key, so installs where it used to be on
+// by default start with it off.
+const WAKE_KEY = 'kannaku.wakeWord.v2';
+const loadWake = () => { try { return localStorage.getItem(WAKE_KEY) === '1'; } catch { return false; } };
 const saveWake = (w: boolean) => { try { localStorage.setItem(WAKE_KEY, w ? '1' : '0'); } catch { /* storage blocked */ } };
+// Agreement to the microphone notices (components/Privacy.tsx). Without storage it is asked again next time.
+const MIC_CONSENT_KEY = 'kannaku.micConsent.v1';
+const WAKE_CONSENT_KEY = 'kannaku.wakeConsent.v1';
+const hasConsent = (k: string) => { try { return localStorage.getItem(k) === '1'; } catch { return false; } };
+const saveConsent = (k: string) => { try { localStorage.setItem(k, '1'); } catch { /* storage blocked */ } };
+
+/** Hands-free, a bare "yes" may be someone else talking nearby; posting needs the wake word too. */
+const HANDS_FREE_CONFIRM: Record<VLang, string> = {
+  en: 'To post hands-free, say “Kannaku, confirm”, or press Ctrl+A.',
+  ta: 'பதிவு செய்ய “கணக்கு சரி” என்று சொல்லுங்கள், அல்லது Ctrl+A அழுத்தவும்.',
+  tanglish: 'Post panna “Kannaku sari” sollunga, illa Ctrl+A press pannunga.',
+};
 
 /**
  * "Kannaku" as speech recognition writes it in English and Tamil. It only counts at the start of
@@ -124,9 +137,20 @@ export function VoicePanel({ open, onOpen, onClose, onWakeChange }: { open: bool
   const [lang, setLangState] = useState<VLang>(loadLang);
   const [muted, setMutedState] = useState(loadMuted);
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [wakeOn, setWakeOn] = useState(() => Boolean(SR) && loadWake());
+  const [micOk, setMicOk] = useState(() => hasConsent(MIC_CONSENT_KEY));
+  const [wakeOk, setWakeOk] = useState(() => hasConsent(WAKE_CONSENT_KEY));
+  const [askConsent, setAskConsent] = useState<{ wake: boolean; then: () => void } | null>(null);
+  const [wakeOn, setWakeOn] = useState(() => Boolean(SR) && loadWake() && hasConsent(MIC_CONSENT_KEY) && hasConsent(WAKE_CONSENT_KEY));
   const [wakeActive, setWakeActive] = useState(false);
   const [wakeErr, setWakeErr] = useState<string | null>(null);
+  const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
+  // Refs, so a callback made before the user agreed still sees the agreement.
+  const micOkRef = useRef(micOk);
+  micOkRef.current = micOk;
+  const wakeOkRef = useRef(wakeOk);
+  wakeOkRef.current = wakeOk;
+  /** This conversation was started by the wake word, not by a click, key or typing. */
+  const handsFree = useRef(false);
   const rec = useRef<any>(null);
   const wakeRec = useRef<any>(null);
   const audio = useRef<AudioContext | null>(null);
@@ -136,7 +160,7 @@ export function VoicePanel({ open, onOpen, onClose, onWakeChange }: { open: bool
   const logRef = useRef<HTMLDivElement>(null);
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
-  const handleRef = useRef<(text: string, conf: number | null) => Promise<void>>(async () => {});
+  const handleRef = useRef<(text: string, conf: number | null, viaWake?: boolean) => Promise<void>>(async () => {});
   const sessionRef = useRef(sessionId);
   sessionRef.current = sessionId;
   const langRef = useRef(lang);
@@ -146,17 +170,41 @@ export function VoicePanel({ open, onOpen, onClose, onWakeChange }: { open: bool
   const voicesRef = useRef(voices);
   voicesRef.current = voices;
   const wakeOnRef = useRef(wakeOn);
-  // Listening for the wake word only makes sense when the AI can answer.
-  const wakeLive = wakeOn && app.status.aiEnabled;
+  // Listening for the wake word only makes sense when the AI can answer, and only while this tab is in view.
+  const wakeLive = wakeOn && app.status.aiEnabled && visible;
   wakeOnRef.current = wakeLive;
+  useEffect(() => {
+    const onVis = () => setVisible(document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
 
   const setLang = (l: VLang) => { setLangState(l); saveLang(l); };
   const setMuted = (m: boolean) => { setMutedState(m); saveMuted(m); if (m) { window.speechSynthesis?.cancel(); setSpeakingId(null); } };
   const setWake = (w: boolean) => {
+    // Turning it on needs agreement to the hands-free notice first.
+    if (w && !(micOkRef.current && wakeOkRef.current)) { setAskConsent({ wake: true, then: () => setWake(true) }); return; }
     setWakeOn(w); saveWake(w); setWakeErr(null);
     // Created on this click, so the browser lets it play the "I'm listening" chime later.
     if (w && !audio.current && 'AudioContext' in window) audio.current = new AudioContext();
   };
+  const agree = () => {
+    if (!askConsent) return;
+    setMicOk(true); micOkRef.current = true; saveConsent(MIC_CONSENT_KEY);
+    if (askConsent.wake) { setWakeOk(true); wakeOkRef.current = true; saveConsent(WAKE_CONSENT_KEY); }
+    setAskConsent(null);
+    // Still inside the click, so the browser allows the microphone and the chime.
+    askConsent.then();
+  };
+  /** Runs `start` now if the user has agreed to the microphone notice; otherwise shows the notice first. */
+  const withMic = (start: () => void) => {
+    handsFree.current = false;
+    if (micOkRef.current) { start(); return; }
+    if (!open) onOpen();
+    setAskConsent({ wake: false, then: start });
+  };
+  const withMicRef = useRef(withMic);
+  withMicRef.current = withMic;
   useEffect(() => { onWakeChange?.(wakeLive); }, [wakeLive, onWakeChange]);
 
   // The chime needs an AudioContext, which browsers allow only after the user has clicked or typed
@@ -168,12 +216,6 @@ export function VoicePanel({ open, onOpen, onClose, onWakeChange }: { open: bool
     return () => { window.removeEventListener('pointerdown', unlock, true); window.removeEventListener('keydown', unlock, true); };
   }, []);
 
-  // Say once that the app is listening, and where to turn it off.
-  useEffect(() => {
-    if (!wakeLive) return;
-    try { if (localStorage.getItem(NOTICE_KEY)) return; localStorage.setItem(NOTICE_KEY, '1'); } catch { return; }
-    app.toast('Listening for “Kannaku”: say it and ask anything. Turn it off in the Voice panel.', 'info');
-  }, [wakeLive, app]);
 
   /** Two short rising tones: "Kannaku" was heard, now say the command. */
   const chime = useCallback(() => {
@@ -249,7 +291,8 @@ export function VoicePanel({ open, onOpen, onClose, onWakeChange }: { open: bool
 
   /** endOnPause: stop when the speaker pauses (answers and wake-word commands); otherwise until stopped. */
   const startListening = useCallback((autoStopMs?: number, endOnPause = false) => {
-    if (!SR || rec.current) return;
+    // Never turn the microphone on, even to hear an answer, before the user has agreed to the notice.
+    if (!SR || rec.current || !micOkRef.current) return;
     stopWake();
     window.speechSynthesis?.cancel();
     setSpeakingId(null);
@@ -278,7 +321,8 @@ export function VoicePanel({ open, onOpen, onClose, onWakeChange }: { open: bool
     r.onerror = () => { rec.current = null; setListening(false); };
     rec.current = r;
     setListening(true);
-    r.start();
+    // start() throws if the previous recogniser has not quite let go of the microphone.
+    try { r.start(); } catch { rec.current = null; setListening(false); return; }
     if (autoStopMs) setTimeout(() => rec.current === r && r.stop(), autoStopMs);
   }, [stopWake]);
   const stopListening = useCallback(() => rec.current?.stop(), []);
@@ -322,14 +366,22 @@ export function VoicePanel({ open, onOpen, onClose, onWakeChange }: { open: bool
   const cancel = useCallback(async () => {
     const p = pendingRef.current;
     if (!p) return;
-    apply(await api.post<VoiceResponse>(c(`/voice/sessions/${p.sessionId}/cancel`), { lang: langRef.current }));
-  }, [apply]);
+    try { apply(await api.post<VoiceResponse>(c(`/voice/sessions/${p.sessionId}/cancel`), { lang: langRef.current })); }
+    catch (e) { setPending(null); setSessionId(null); say(e instanceof ApiError ? e.message : 'Could not cancel.', undefined, 'en', true); }
+  }, [apply, say]);
 
-  const handle = useCallback(async (text: string, confidence: number | null) => {
+  /** viaWake: the wake word introduced this (it has already been taken off the text). */
+  const handle = useCallback(async (text: string, confidence: number | null, viaWake = false) => {
     setLog((l) => [...l, { id: ++msgSeq, who: 'you', text, lang: langRef.current }]);
     const p = pendingRef.current;
-    if (p && CONFIRM_RE.test(text.trim())) return confirm('voice');
-    if (p && CANCEL_RE.test(text.trim())) return cancel();
+    const addressed = wakeCommand(text);            // "Kannaku, sari" heard while listening for the answer
+    const said = (addressed ?? text).trim();
+    if (p && CONFIRM_RE.test(said)) {
+      // Hands-free, a bare "sari" may be someone else talking near the computer; ask for the wake word with it.
+      if (handsFree.current && !viaWake && addressed === null) { say(HANDS_FREE_CONFIRM[langRef.current]); return; }
+      return confirm('voice');
+    }
+    if (p && CANCEL_RE.test(said)) return cancel();
     setBusy(true);
     try {
       apply(await api.post<VoiceResponse>(c('/voice/utterance'), {
@@ -340,12 +392,14 @@ export function VoicePanel({ open, onOpen, onClose, onWakeChange }: { open: bool
     } finally { setBusy(false); }
   }, [app.route.screen, apply, cancel, confirm, say]);
   handleRef.current = handle;
+  /** Typed, tapped or clicked: the user is at the screen, so this is not a hands-free conversation. */
+  const byHand = (text: string) => { handsFree.current = false; void handle(text, null); };
 
   // ---------- "Kannaku" wake word ----------
   // A background recogniser that only looks for the wake word; it pauses while the assistant
   // listens to a command or speaks, and resumes when idle.
   const startWake = useCallback(() => {
-    if (!SR || !wakeOnRef.current || wakeRec.current || rec.current) return;
+    if (!SR || !wakeOnRef.current || !micOkRef.current || !wakeOkRef.current || wakeRec.current || rec.current) return;
     const r = new SR();
     r.lang = LANGS[langRef.current].stt;
     r.continuous = true;
@@ -358,7 +412,8 @@ export function VoicePanel({ open, onOpen, onClose, onWakeChange }: { open: bool
         if (command === null) continue;
         stopWake();
         openRef.current();
-        if (command.length > 1) void handleRef.current(command, e.results[i][0].confidence ?? null);
+        handsFree.current = true;
+        if (command.length > 1) void handleRef.current(command, e.results[i][0].confidence ?? null, true);
         else { chime(); setTimeout(() => startListening(10000, true), 250); }
         return;
       }
@@ -397,7 +452,7 @@ export function VoicePanel({ open, onOpen, onClose, onWakeChange }: { open: bool
       if (e.code === 'Space' && (e.ctrlKey || e.metaKey) && !e.repeat) {
         e.preventDefault();
         if (!open) onOpen();
-        startListening();
+        withMicRef.current(() => startListening());
       }
     };
     const up = (e: KeyboardEvent) => { if ((e.code === 'Space' || e.key === 'Control') && rec.current) stopListening(); };
@@ -406,8 +461,17 @@ export function VoicePanel({ open, onOpen, onClose, onWakeChange }: { open: bool
     return () => { window.removeEventListener('keydown', down, true); window.removeEventListener('keyup', up, true); };
   }, [open, onOpen, startListening, stopListening]);
 
-  useKeys({ 'Ctrl+A': () => { void confirm('screen'); } }, Boolean(pending));
+  // Ctrl+A confirms the voice draft only while it is on screen; otherwise it belongs to the screen behind.
+  useKeys({ 'Ctrl+A': () => { void confirm('screen'); } }, open && Boolean(pending));
   useKeys({ Escape: () => { onClose(); } }, open && !pending);
+  // Closing the panel drops the draft it was showing, so nothing unseen can be confirmed later.
+  useEffect(() => {
+    const p = pendingRef.current;
+    if (open || !p) return;
+    setPending(null);
+    setSessionId(null);
+    void api.post(c(`/voice/sessions/${p.sessionId}/cancel`), { lang: langRef.current }).catch(() => {});
+  }, [open]);
 
   if (!open) return null;
   const L = LANGS[lang];
@@ -445,6 +509,15 @@ export function VoicePanel({ open, onOpen, onClose, onWakeChange }: { open: bool
         </label>
       )}
       {wakeErr && <div className="warn small">{wakeErr}</div>}
+      {askConsent && (
+        <div className="chat-card consent" role="dialog" aria-modal="false" aria-label="Microphone notice">
+          <SpeechNotice wake={askConsent.wake} />
+          <div className="chat-actions">
+            <button className="primary" onClick={agree} autoFocus>{askConsent.wake ? 'I agree, turn on hands-free' : 'I agree, use the microphone'}</button>
+            <button onClick={() => setAskConsent(null)}>Not now</button>
+          </div>
+        </div>
+      )}
       {noTamilVoice && (
         <div className="warn small">This browser has no Tamil voice, so Tamil replies are shown but not spoken.{' '}
           <button className="link" onClick={() => setLang('tanglish')}>Switch to Tanglish</button> to hear them.</div>
@@ -454,7 +527,8 @@ export function VoicePanel({ open, onOpen, onClose, onWakeChange }: { open: bool
         {log.length === 0 && (
           <div className="chat-empty">
             <p className="muted small">{lang === 'tanglish' ? 'Enna pannanum nu sollunga, illa idhula onna tap pannunga:' : lang === 'ta' ? 'என்ன செய்ய வேண்டும் என்று சொல்லுங்கள், அல்லது ஒன்றைத் தட்டுங்கள்:' : 'Say what you need, or tap one of these:'}</p>
-            {L.examples.map((x) => <button key={x} className="chip" onClick={() => void handle(x, null)} disabled={busy}>{x}</button>)}
+            {L.examples.map((x) => <button key={x} className="chip" onClick={() => byHand(x)} disabled={busy}>{x}</button>)}
+            <p className="muted small">What you say or type here is sent to Anthropic&rsquo;s Claude to understand it.</p>
           </div>
         )}
         {log.map((m) => (
@@ -490,14 +564,14 @@ export function VoicePanel({ open, onOpen, onClose, onWakeChange }: { open: bool
         )}
       </div>
 
-      <form className="chat-compose" onSubmit={(e) => { e.preventDefault(); if (typed.trim()) { void handle(typed.trim(), null); setTyped(''); } }}>
+      <form className="chat-compose" onSubmit={(e) => { e.preventDefault(); if (typed.trim()) { byHand(typed.trim()); setTyped(''); } }}>
         <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={L.typeHint} aria-label="Type a message" disabled={listening} />
         {typed.trim()
           ? <button type="submit" className="send" aria-label="Send">➤</button>
           : SR && (
             <button type="button" className={`mic ${listening ? 'on' : ''}`} aria-pressed={listening}
               aria-label={listening ? 'Stop listening' : 'Start talking'} title={listening ? 'Tap to stop' : 'Tap to talk'}
-              onClick={() => (listening ? stopListening() : startListening())}>🎙</button>
+              onClick={() => (listening ? stopListening() : withMic(() => startListening()))}>🎙</button>
           )}
       </form>
     </aside>

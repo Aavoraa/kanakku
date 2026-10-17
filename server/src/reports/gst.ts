@@ -1,4 +1,5 @@
 import { many, type Db } from '../db/client';
+import { HEADS, setOff, type Head, type HeadTotals } from '../tax/setoff';
 
 /** Output vs input tax for a period, by component and rate — the numbers behind GSTR-3B. */
 export async function gstSummary(db: Db, companyId: string, from: string, to: string) {
@@ -9,13 +10,15 @@ export async function gstSummary(db: Db, companyId: string, from: string, to: st
       WHERE company_id = $1 AND voucher_date BETWEEN $2 AND $3
       GROUP BY direction, component, rate_ppm, reverse_charge, itc_eligible
       ORDER BY direction DESC, component, rate_ppm`, [companyId, from, to]);
-  const components = ['IGST', 'CGST', 'SGST', 'UTGST', 'CESS'];
-  const byComponent = components.map((c) => {
-    const out = rows.filter((r) => r.component === c && r.direction === 'OUTPUT').reduce((s, r) => s + r.tax, 0n);
-    const rcm = rows.filter((r) => r.component === c && r.direction === 'INPUT' && r.reverse_charge).reduce((s, r) => s + r.tax, 0n);
-    const itc = rows.filter((r) => r.component === c && r.direction === 'INPUT' && r.itc_eligible).reduce((s, r) => s + r.tax, 0n);
-    return { component: c, outputMinor: out, rcmMinor: rcm, itcMinor: itc, netPayableMinor: out + rcm - itc };
-  }).filter((r) => r.outputMinor || r.rcmMinor || r.itcMinor);
+  const totals = Object.fromEntries(HEADS.map((c) => [c, {
+    outputMinor: rows.filter((r) => r.component === c && r.direction === 'OUTPUT').reduce((s, r) => s + r.tax, 0n),
+    rcmMinor: rows.filter((r) => r.component === c && r.direction === 'INPUT' && r.reverse_charge).reduce((s, r) => s + r.tax, 0n),
+    itcMinor: rows.filter((r) => r.component === c && r.direction === 'INPUT' && r.itc_eligible).reduce((s, r) => s + r.tax, 0n),
+  }])) as Record<Head, HeadTotals>;
+  // netPayableMinor is the cash to pay for the head after the legal set-off order (see tax/setoff.ts).
+  const byComponent = setOff(totals)
+    .map((r) => ({ ...r, netPayableMinor: r.cashMinor }))
+    .filter((r) => r.outputMinor || r.rcmMinor || r.itcMinor);
 
   const sales = await many(db,
     `SELECT CASE WHEN cp.gstin IS NULL THEN 'B2C' ELSE 'B2B' END AS kind,
@@ -35,7 +38,8 @@ export async function gstSummary(db: Db, companyId: string, from: string, to: st
       itcEligible: r.itc_eligible, taxableMinor: r.taxable, taxMinor: r.tax,
     })),
     byComponent,
-    netPayableMinor: byComponent.reduce((s, r) => s + r.netPayableMinor, 0n),
+    netPayableMinor: byComponent.reduce((s, r) => s + r.cashMinor, 0n),
+    carryForwardMinor: byComponent.reduce((s, r) => s + r.carryForwardMinor, 0n),
     salesByRate: sales,
   };
 }

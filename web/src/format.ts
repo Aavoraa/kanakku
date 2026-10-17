@@ -43,6 +43,25 @@ export function fmtDate(iso: string | null | undefined): string {
   return `${Number(d)}-${MONTHS[Number(m) - 1]}-${y.slice(2)}`;
 }
 
+/** Today's date in India (the books' calendar), whatever the computer's time zone. */
+export const todayIST = () => new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
+
+function parseDec(s: string): { n: bigint; scale: number } | null {
+  const t = s.replace(/,/g, '').trim();
+  if (!/^\d+(\.\d+)?$/.test(t)) return null;
+  const [i, f = ''] = t.split('.');
+  return { n: BigInt(i + f), scale: f.length };
+}
+
+/** qty x rate in rupees, exact and rounded half-up to the paisa ("1" x "1.005" = "1.01"); null if either is not a number. */
+export function multiplyAmount(qty: string, rate: string): string | null {
+  const a = parseDec(qty);
+  const b = parseDec(rate);
+  if (!a || !b) return null;
+  const div = 10n ** BigInt(a.scale + b.scale);
+  return fromMinor((a.n * b.n * 200n + div) / (2n * div));
+}
+
 export function addDays(iso: string, n: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);

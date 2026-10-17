@@ -15,6 +15,8 @@ import { normalizeTranscript, wordsToNumber } from '../src/ai/voice/normalize';
 import { groundRecordVoucher } from '../src/ai/voice/grounding';
 import { confirmSession, handleUtterance, isCancel, isConfirm } from '../src/ai/voice/engine';
 import { buildReview, acceptDocument } from '../src/ai/documents';
+import { dec, lineTaxable } from '../src/ai/bill-numbers';
+import { postVoucher } from '../src/ledger/post';
 import { LedgerContext } from '../src/ledger/context';
 import { makeGstin } from '../src/lib/gstin';
 import { todayIST, addDays } from '../src/lib/dates';
@@ -61,6 +63,22 @@ describe('grounding', () => {
   it('rejects citations that were never heard', () => {
     expect(groundRecordVoucher({ ...base, amount: { value: '6500', spoken: '6500 rupees' } }, heard)).toHaveLength(1);
     expect(groundRecordVoucher({ ...base, gst_rate_percent: '12' }, heard)[0].path).toBe('gst_rate_percent');
+  });
+});
+
+describe('numbers written by the model', () => {
+  it('reads grouped, unit-suffixed and percent values instead of failing the document', () => {
+    expect(dec('1,250.00')?.toString()).toBe('1250');
+    expect(dec('₹ 500')?.toString()).toBe('500');
+    expect(dec('10 Nos')?.toString()).toBe('10');
+    expect(dec('18%')?.toString()).toBe('18');
+    expect(dec('n/a')).toBeNull();
+    expect(dec(null)).toBeNull();
+  });
+  it('works out a taxable value from a line that prints only its total', () => {
+    const line = { description: 'Cement', hsn_sac: null, quantity: null, unit: null, unit_price: null, discount: null, taxable_value: null,
+      gst_rate_percent: '18', cgst: '90.00', sgst: '90.00', igst: null, cess: null, line_total: '1,180.00' } as unknown as ParsedBill['line_items'][number];
+    expect(lineTaxable(line)?.toString()).toBe('1000');
   });
 });
 
@@ -129,6 +147,17 @@ describe('voice engine (model mocked)', () => {
     await expect(confirmSession(db, companyId, r.sessionId!, 'voice')).rejects.toMatchObject({ code: 'NEEDS_SCREEN_CONFIRM' });
     const ok = await confirmSession(db, companyId, r.sessionId!, 'screen');
     expect(ok.kind).toBe('posted');
+  });
+
+  it('reverses a voucher above the voice limit only from the screen', async () => {
+    const sale = await postVoucher(db, companyId, {
+      voucherType: 'SALES', date: todayIST(), paymentMode: 'CASH', items: [{ amount: '250000', gstRate: '0', description: 'Bulk order' }],
+    }, { source: 'MANUAL', idempotencyKey: 'voice-reverse-big', userId: config.localUserId });
+    createMock.mockImplementationOnce(async () => toolUse('reverse_voucher', { voucher_type: 'SALES', voucher_no: sale.voucherNo }));
+    const r = await handleUtterance(db, companyId, { transcript: `reverse sale ${sale.voucherNo}` });
+    expect(r.kind).toBe('reverse');
+    await expect(confirmSession(db, companyId, r.sessionId!, 'voice')).rejects.toMatchObject({ code: 'NEEDS_SCREEN_CONFIRM' });
+    expect((await confirmSession(db, companyId, r.sessionId!, 'screen')).kind).toBe('posted');
   });
 });
 

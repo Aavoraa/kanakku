@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Decimal from 'decimal.js';
 import type { PGlite } from '@electric-sql/pglite';
-import { many, maybeOne, one } from '../db/client';
+import { many, maybeOne, one, type Db } from '../db/client';
 import { config } from '../config';
 import { AppError, notFound } from '../lib/errors';
 import { addDays, shortDate, todayIST } from '../lib/dates';
@@ -14,10 +14,11 @@ import { normName } from '../lib/text';
 import { KNOWN_GST_RATES_PPM } from '../tax/india-gst';
 import { LedgerContext } from '../ledger/context';
 import { createParty, type NewParty } from '../ledger/masters';
-import { bigintJson, postVoucher, previewVoucher } from '../ledger/post';
+import { audit, bigintJson, postVoucher, previewVoucher } from '../ledger/post';
 import type { BaseType, VoucherInputRaw } from '../ledger/contracts';
 import { BILL_PROMPT, extractBill, type BillMedia } from './extract-bill';
 import type { ParsedBill } from './bill-schema';
+import { dec, lineTaxable } from './bill-numbers';
 import { learnLine, learnPartyAlias, resolveLine, resolveParty, type LineResolution, type PartyResolution } from './resolver';
 import { validateBill } from './validators';
 import { classifyFile, readSheets, sheetToText, type FileKind } from './intake/files';
@@ -61,7 +62,12 @@ const queue: string[] = [];
 let running = 0;
 const CONCURRENCY = 2;
 
+/** Documents queued or being read; a document is never in the queue twice. */
+const active = new Set<string>();
+
 export function enqueue(db: PGlite, documentId: string) {
+  if (active.has(documentId)) return;
+  active.add(documentId);
   queue.push(documentId);
   pump(db);
 }
@@ -72,7 +78,7 @@ function pump(db: PGlite) {
     running++;
     processDocument(db, id)
       .catch((e) => console.error(`[documents] ${id} failed:`, e))
-      .finally(() => { running--; pump(db); });
+      .finally(() => { running--; active.delete(id); pump(db); });
   }
 }
 
@@ -261,11 +267,13 @@ async function aiClassifyLeftovers(db: PGlite, ctx: LedgerContext, bankLedgerId:
     `SELECT l.id, l.name, g.name AS "group", l.counterparty_id FROM ledgers l JOIN ledger_groups g ON g.id = l.group_id
       WHERE l.company_id = $1 AND l.is_active AND l.tax_component IS NULL AND l.id <> $2 ORDER BY (l.counterparty_id IS NULL), l.name LIMIT 300`,
     [ctx.company.id, bankLedgerId]);
-  const bills = await many<{ ledger_id: string; refs: string }>(db,
-    `SELECT ledger_id, string_agg(bill_ref || '=' || abs(s)::numeric / 100, ', ') AS refs FROM (
+  const bills = await many<{ ledger_id: string; refs: string; ref_list: string[] }>(db,
+    `SELECT ledger_id, string_agg(bill_ref || '=' || abs(s)::numeric / 100, ', ') AS refs, array_agg(bill_ref) AS ref_list FROM (
        SELECT ledger_id, bill_ref, SUM(amount_minor) AS s FROM bill_allocations WHERE company_id = $1 AND alloc_type IN ('NEW_REF','AGST_REF')
        GROUP BY ledger_id, bill_ref HAVING SUM(amount_minor) <> 0) b GROUP BY ledger_id`, [ctx.company.id]);
   const billsBy = new Map(bills.map((b) => [b.ledger_id, b.refs]));
+  // The model may only settle a bill that is actually open on that ledger (exact match, not a substring).
+  const openRefs = new Map(bills.map((b) => [b.ledger_id, new Set(b.ref_list)]));
   const keyed: (AccountForAi & { id: string })[] = ledgers.map((l, i) => ({ key: `a${i + 1}`, id: l.id, name: l.name, group: l.group, openBills: billsBy.get(l.id) }));
   const byKey = new Map(keyed.map((k) => [k.key, k]));
   const lineBy = new Map(st.lines.map((l) => [l.lineNo, l]));
@@ -281,7 +289,7 @@ async function aiClassifyLeftovers(db: PGlite, ctx: LedgerContext, bankLedgerId:
       const acct = d.counter_key ? byKey.get(d.counter_key) : null;
       if (!p || !acct || p.payload) continue;
       const l = lineBy.get(p.lineNo)!;
-      const billRef = d.bill_ref && acct.openBills?.includes(`${d.bill_ref}=`) ? d.bill_ref : null;
+      const billRef = d.bill_ref && openRefs.get(acct.id)?.has(d.bill_ref) ? d.bill_ref : null;
       p.payload = bankPayload({ bankLedgerId, isCashBank: (id) => ctx.isCashBank(id) }, l, acct.id, ctx.isCashBank(acct.id) ? null : billRef);
       p.suggestion = { how: 'ai', confidence: d.confidence, reason: d.reason, counterLedgerId: acct.id, counterName: acct.name };
       p.status = d.confidence === 'high' ? 'READY' : 'NEEDS_INPUT';
@@ -343,7 +351,8 @@ async function autoAcceptBill(db: PGlite, ctx: LedgerContext, documentId: string
   const c = await one<{ auto_post: boolean; auto_post_limit_minor: bigint }>(db, `SELECT auto_post, auto_post_limit_minor FROM companies WHERE id = $1`, [ctx.company.id]);
   if (!c.auto_post || !review.draft.counterpartyId) return;
   if (review.issues.some((i) => i.severity !== 'info')) return;
-  if (!review.matches.recomputedTotal || !review.printedTotal || new Decimal(review.matches.recomputedTotal).minus(review.printedTotal).abs().gt(1)) return;
+  const printed = dec(review.printedTotal);
+  if (!review.matches.recomputedTotal || !printed || new Decimal(review.matches.recomputedTotal).minus(printed).abs().gt(1)) return;
   if (decToMinor(new Decimal(review.matches.recomputedTotal)) > c.auto_post_limit_minor) return;
   try { await acceptDocument(db, ctx.company.id, documentId, { draft: review.draft }, userId); } catch { /* leave it for review */ }
 }
@@ -375,7 +384,8 @@ export async function buildReview(db: PGlite, ctx: LedgerContext, bill: ParsedBi
       ? Math.max(0, Math.round((Date.parse(bill.due_date) - Date.parse(bill.invoice_date.value)) / 864e5)) : null,
   };
 
-  const sellerGstin = bill.supplier.gstin.value?.toUpperCase() ?? null;
+  // On an invoice we issued, the seller is us: use our own GSTIN rather than what the model read off the page.
+  const sellerGstin = map.role === 'issued' ? ctx.company.gstin : bill.supplier.gstin.value?.toUpperCase() ?? null;
   const unregistered = !sellerGstin || bill.document_type === 'BILL_OF_SUPPLY';
   const items: NonNullable<VoucherInputRaw['items']> = [];
   const lineMatches: Matches['lines'] = [];
@@ -386,24 +396,27 @@ export async function buildReview(db: PGlite, ctx: LedgerContext, bill: ParsedBi
     lineMatches.push({ ...m, ledgerId, ledgerName: salesSide ? null : m.ledgerName, description: l.description });
     const amount = lineTaxable(l);
     if (amount === null) continue;
-    const useItem = Boolean(m.itemId && l.quantity && new Decimal(l.quantity).gt(0));
+    const qty = dec(l.quantity);
+    const useItem = Boolean(m.itemId && qty && qty.gt(0));
     items.push({
       itemId: useItem ? m.itemId : null,
       ledgerId: useItem ? null : ledgerId,
       description: l.description.slice(0, 500),
-      qty: useItem ? l.quantity : null,
-      rate: l.unit_price,
+      qty: useItem ? qty!.toString() : null,
+      rate: dec(l.unit_price)?.toString() ?? null,
       amount: amount.toFixed(2),
       gstRate: unregistered ? '0' : lineRate(l, amount),
       hsnSac: l.hsn_sac && /^\d{4,8}$/.test(l.hsn_sac) ? l.hsn_sac : null,
     });
   }
   for (const c of bill.charges) {
+    const chargeAmount = dec(c.amount);
+    if (!chargeAmount) continue;
     const m = await resolveLine(db, ctx.company.id, counterpartyId, c.label, c.hsn_sac);
     lineMatches.push({ ...m, ledgerId: salesSide ? null : m.ledgerId, ledgerName: salesSide ? null : m.ledgerName, description: c.label });
     items.push({
-      ledgerId: salesSide ? null : m.ledgerId, description: c.label, amount: new Decimal(c.amount).toFixed(2),
-      gstRate: unregistered ? '0' : c.gst_rate_percent ?? '0',
+      ledgerId: salesSide ? null : m.ledgerId, description: c.label, amount: chargeAmount.toFixed(2),
+      gstRate: unregistered ? '0' : dec(c.gst_rate_percent)?.toString() ?? '0',
       hsnSac: c.hsn_sac && /^\d{4,8}$/.test(c.hsn_sac) ? c.hsn_sac : null,
     });
   }
@@ -442,20 +455,11 @@ export async function buildReview(db: PGlite, ctx: LedgerContext, bill: ParsedBi
   return { draft, issues, matches, printedTotal: bill.totals.grand_total.value };
 }
 
-function lineTaxable(l: ParsedBill['line_items'][number]): Decimal | null {
-  if (l.taxable_value) return new Decimal(l.taxable_value);
-  if (l.quantity && l.unit_price) return new Decimal(l.quantity).times(l.unit_price).minus(l.discount ?? 0);
-  if (l.line_total) {
-    const tax = [l.cgst, l.sgst, l.igst, l.cess].reduce((s, x) => s.plus(x ?? 0), new Decimal(0));
-    return new Decimal(l.line_total).minus(tax);
-  }
-  return null;
-}
-
 /** Printed rate, else inferred from printed tax amounts (snapped to a known slab), else 0. */
 function lineRate(l: ParsedBill['line_items'][number], taxable: Decimal): string {
-  if (l.gst_rate_percent) return l.gst_rate_percent;
-  const tax = [l.cgst, l.sgst, l.igst].reduce((s, x) => s.plus(x ?? 0), new Decimal(0));
+  const printed = dec(l.gst_rate_percent);
+  if (printed) return printed.toString();
+  const tax = [l.cgst, l.sgst, l.igst].reduce((s, x) => s.plus(dec(x) ?? 0), new Decimal(0));
   if (tax.gt(0) && taxable.gt(0)) {
     const pct = tax.div(taxable).times(100);
     const slab = [...KNOWN_GST_RATES_PPM].map((p) => p / 10_000).find((r) => pct.minus(r).abs().lt(0.2));
@@ -477,7 +481,7 @@ export async function acceptDocument(db: PGlite, companyId: string, documentId: 
   }
   if (doc.draft_id) await db.query(`UPDATE voucher_drafts SET payload = $2, updated_at = now() WHERE id = $1`, [doc.draft_id, JSON.stringify(draft)]);
   const posted = await postVoucher(db, companyId, { ...draft, confirmWarnings: Boolean(body.confirmWarnings) },
-    { source: 'OCR', idempotencyKey: `doc:${documentId}`, userId, draftId: doc.draft_id });
+    { source: 'OCR', idempotencyKey: await liveKey(db, companyId, `doc:${documentId}`), userId, draftId: doc.draft_id });
 
   // Learn from the reviewer: printed party name -> party; line description -> item / ledger.
   const printed = salesSide ? doc.extraction?.buyer.name.value : doc.extraction?.supplier.name.value;
@@ -491,6 +495,21 @@ export async function acceptDocument(db: PGlite, companyId: string, documentId: 
   return posted;
 }
 
+/**
+ * The idempotency key for posting from a document. A double click must find the voucher already posted, but
+ * once that voucher has been reversed (say, to read the bill again and post it corrected) a new key is needed,
+ * or posting would quietly hand back the reversed voucher and put nothing in the books.
+ */
+export async function liveKey(db: Db, companyId: string, base: string): Promise<string> {
+  const used = await many<{ key: string; reversed: boolean }>(db,
+    `SELECT v.idempotency_key AS key, EXISTS (SELECT 1 FROM vouchers r WHERE r.reverses_voucher_id = v.id) AS reversed
+       FROM vouchers v WHERE v.company_id = $1 AND (v.idempotency_key = $2 OR v.idempotency_key LIKE $2 || ':redo%')`,
+    [companyId, base]);
+  const live = used.find((u) => !u.reversed);
+  if (live) return live.key;
+  return used.length ? `${base}:redo${used.length}` : base;
+}
+
 export async function rejectDocument(db: PGlite, companyId: string, documentId: string) {
   const doc = await maybeOne<{ draft_id: string | null; status: string }>(db, `SELECT draft_id, status FROM documents WHERE id = $1 AND company_id = $2`, [documentId, companyId]);
   if (!doc) throw notFound('Document');
@@ -502,11 +521,45 @@ export async function rejectDocument(db: PGlite, companyId: string, documentId: 
 
 /** Re-run a document with new choices (bank account, register type, forced document type). Posted lines are kept. */
 export async function reprocessDocument(db: PGlite, companyId: string, documentId: string, options: DocOptions) {
-  const doc = await maybeOne<{ options: DocOptions; status: string }>(db, `SELECT options, status FROM documents WHERE id = $1 AND company_id = $2`, [documentId, companyId]);
+  const doc = await maybeOne<{ options: DocOptions; status: string; voucher_id: string | null }>(db,
+    `SELECT options, status, voucher_id FROM documents WHERE id = $1 AND company_id = $2`, [documentId, companyId]);
   if (!doc) throw notFound('Document');
+  // Reading it twice at once would pay for two AI calls and leave duplicate entries.
+  if (active.has(documentId)) throw new AppError('DOCUMENT_BUSY', 409, 'This document is still being read. Try again once it finishes.');
+  if (doc.voucher_id && !(await maybeOne(db, `SELECT 1 FROM vouchers WHERE reverses_voucher_id = $1`, [doc.voucher_id]))) {
+    throw new AppError('DOCUMENT_POSTED', 409, 'This bill is already in the books. Reverse its voucher from the Day Book first, then read it again.');
+  }
   const merged = { ...(doc.options ?? {}), ...options };
   await db.query(`UPDATE documents SET options = $2, status = 'RECEIVED', updated_at = now() WHERE id = $1`, [documentId, JSON.stringify(merged)]);
   enqueue(db, documentId);
+}
+
+/** Deletes a document, its unposted entries and its file. Refused while anything posted from it is still live in the books. */
+export async function deleteDocument(db: PGlite, companyId: string, documentId: string, userId: string) {
+  const doc = await maybeOne<{ status: string; file_name: string; storage_key: string; draft_id: string | null }>(db,
+    `SELECT status, file_name, storage_key, draft_id FROM documents WHERE id = $1 AND company_id = $2`, [documentId, companyId]);
+  if (!doc) throw notFound('Document');
+  if (doc.status === 'RECEIVED' || doc.status === 'PROCESSING') throw new AppError('DOCUMENT_BUSY', 409, 'This document is still being read. Delete it once it finishes.');
+  const live = await many<{ voucher_no: string }>(db,
+    `SELECT v.voucher_no FROM vouchers v
+      WHERE v.company_id = $1
+        AND v.id IN (SELECT voucher_id FROM documents WHERE id = $2 UNION SELECT voucher_id FROM document_entries WHERE document_id = $2)
+        AND NOT EXISTS (SELECT 1 FROM vouchers r WHERE r.reverses_voucher_id = v.id)
+      ORDER BY v.chain_seq`, [companyId, documentId]);
+  if (live.length) {
+    throw new AppError('DOCUMENT_POSTED', 409,
+      `Entries from this document are in the books (No. ${live.map((v) => v.voucher_no).join(', ')}). Reverse them from the Day Book first, then delete it.`);
+  }
+  await db.transaction(async (tx) => {
+    await tx.query(`DELETE FROM document_entries WHERE document_id = $1`, [documentId]);
+    await tx.query(`DELETE FROM documents WHERE id = $1`, [documentId]);
+    if (doc.draft_id) await tx.query(`UPDATE voucher_drafts SET status = 'DISCARDED', updated_at = now() WHERE id = $1 AND status = 'OPEN'`, [doc.draft_id]);
+    await audit(tx, companyId, userId, 'MANUAL', 'DELETE', 'document', documentId, { fileName: doc.file_name, status: doc.status }, null);
+  });
+  // The same file can be uploaded to another company; keep it while any document still points at it.
+  if (!(await maybeOne(db, `SELECT 1 FROM documents WHERE storage_key = $1`, [doc.storage_key]))) {
+    fs.rmSync(documentFilePath(doc.storage_key), { force: true });
+  }
 }
 
 export function documentFilePath(storageKey: string) {

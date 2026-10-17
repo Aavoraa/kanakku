@@ -36,10 +36,16 @@ export async function stockAsOf(db: Db, companyId: string, asOf: string, itemId?
        FROM stock_items i JOIN uoms u ON u.id = i.base_uom_id
       WHERE i.company_id = $1 AND ($2::uuid IS NULL OR i.id = $2)
       ORDER BY i.name`, [companyId, itemId ?? null]);
+  // A voucher reversed on or before the date is valued as if it was never posted: both it and its reversal
+  // are left out. Replaying the reversal as an outward movement would take stock out at the running cost
+  // rather than the cost it came in at, and leave closing stock overstated.
   const moves = await many<MoveRow>(db,
-    `SELECT item_id, qty::text, unit_cost::text FROM inventory_entries
-      WHERE company_id = $1 AND voucher_date <= $2 AND ($3::uuid IS NULL OR item_id = $3)
-      ORDER BY voucher_date, chain_seq, line_no`, [companyId, asOf, itemId ?? null]);
+    `SELECT ie.item_id, ie.qty::text, ie.unit_cost::text
+       FROM inventory_entries ie JOIN vouchers v ON v.id = ie.voucher_id
+      WHERE ie.company_id = $1 AND ie.voucher_date <= $2 AND ($3::uuid IS NULL OR ie.item_id = $3)
+        AND v.reverses_voucher_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM vouchers r WHERE r.reverses_voucher_id = ie.voucher_id AND r.voucher_date <= $2)
+      ORDER BY ie.voucher_date, ie.chain_seq, ie.line_no`, [companyId, asOf, itemId ?? null]);
   const byItem = new Map<string, Move[]>();
   for (const m of moves) {
     const list = byItem.get(m.item_id) ?? [];

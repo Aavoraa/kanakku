@@ -137,7 +137,7 @@ export async function partyOutstanding(db: Db, companyId: string, counterpartyId
   const r = await ageing(db, companyId, 'receivable', asOf);
   const p = await ageing(db, companyId, 'payable', asOf);
   const match = [...r.parties, ...p.parties].find((x) => x.counterpartyId === counterpartyId);
-  const ledger = await maybeOne<{ id: string }>(db, `SELECT id FROM ledgers WHERE counterparty_id = $1`, [counterpartyId]);
+  const ledger = await maybeOne<{ id: string }>(db, `SELECT id FROM ledgers WHERE counterparty_id = $1 AND company_id = $2`, [counterpartyId, companyId]);
   const balance = ledger
     ? (await one<{ s: bigint }>(db, `SELECT COALESCE(SUM(amount_minor), 0)::bigint AS s FROM ledger_entries WHERE ledger_id = $1 AND voucher_date <= $2`, [ledger.id, asOf])).s
     : 0n;

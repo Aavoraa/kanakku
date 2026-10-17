@@ -161,6 +161,7 @@ export async function handleUtterance(db: PGlite, companyId: string, req: VoiceR
       const problems = groundRecordVoucher(input, combined);
       grounding = problems;
       if (problems.length) { response = await keepAsking(turn, input, T.askFor(problems[0].field)); break; }
+      plainNumbers(input);
       if (req.confidence !== null && req.confidence !== undefined && req.confidence < 0.6 && input.amount) {
         response = await keepAsking(turn, input, T.lowConfidenceAmount(input.amount.value));
         break;
@@ -352,6 +353,18 @@ async function recordVoucher(t: Turn, call: RecordVoucherCall, c: VoiceCandidate
   };
 }
 
+/**
+ * Grounding accepts "5,500" as 5500; drop the grouping commas so the amounts reach the posting engine as
+ * plain decimals (it, and Decimal, reject commas).
+ */
+function plainNumbers(node: unknown): void {
+  if (Array.isArray(node)) { node.forEach(plainNumbers); return; }
+  if (!node || typeof node !== 'object') return;
+  const o = node as Record<string, unknown>;
+  if (typeof o.value === 'string' && /^\d{1,3}(,\d{2,3})+(\.\d+)?$/.test(o.value)) o.value = o.value.replace(/,/g, '');
+  for (const v of Object.values(o)) if (v && typeof v === 'object') plainNumbers(v);
+}
+
 function buildReadback(
   T: Messages, type: string, input: VoucherInputRaw, preview: Awaited<ReturnType<typeof previewVoucher>>, partyName: string | null,
   ctx: LedgerContext, date: string, today: string, warnings: string[], needsScreen: boolean, overLimit: boolean,
@@ -389,6 +402,13 @@ export async function confirmSession(
   }
 
   if (s.kind === 'REVERSE' && s.target_voucher_id) {
+    // The same limits as posting: a large or old voucher is only reversed with Ctrl+A on screen.
+    if (channel === 'voice') {
+      const target = await one<{ total_minor: bigint; voucher_date: string }>(db,
+        `SELECT total_minor, voucher_date::text FROM vouchers WHERE id = $1 AND company_id = $2`, [s.target_voucher_id, companyId]);
+      if (target.total_minor > company.voice_limit_minor) throw new AppError('NEEDS_SCREEN_CONFIRM', 409, T.overLimitConfirm);
+      if (daysBetween(target.voucher_date, todayIST()) > 7) throw new AppError('NEEDS_SCREEN_CONFIRM', 409, T.backdatedConfirm);
+    }
     const r = await reverseVoucher(db, companyId, s.target_voucher_id, { userId, source: 'VOICE', idempotencyKey: `voice-reverse:${s.id}` });
     await db.query(`UPDATE voice_sessions SET status = 'POSTED', voucher_id = $2, updated_at = now() WHERE id = $1`, [s.id, r.id]);
     return { kind: 'posted', sessionId: null, lang, speech: T.reversed(r.voucherNo), voucher: { id: r.id, voucherNo: r.voucherNo, voucherType: r.voucherType } };

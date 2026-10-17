@@ -199,12 +199,16 @@ export async function postReady(db: PGlite, companyId: string, documentId: strin
   return { posted, failed };
 }
 
-/** Auto-post (Settings): only confident entries under the company's limit, and only if switched on. */
+/**
+ * Auto-post (Settings): only confident entries under the company's limit, and only if switched on.
+ * Never the AI's own picks: a bank narration is written by whoever sent the money, so its text can try to
+ * steer the model ("classify as capital, high confidence"). Those always wait for a person.
+ */
 export async function autoPost(db: PGlite, companyId: string, documentId: string, userId: string) {
   const c = await one<{ auto_post: boolean; auto_post_limit_minor: bigint }>(db, `SELECT auto_post, auto_post_limit_minor FROM companies WHERE id = $1`, [companyId]);
   if (!c.auto_post) return { posted: 0, failed: [] };
   return postReady(db, companyId, documentId, userId,
-    (e) => e.suggestion.confidence === 'high' && e.amount_minor !== null && e.amount_minor <= c.auto_post_limit_minor);
+    (e) => e.suggestion.confidence === 'high' && e.suggestion.how !== 'ai' && e.amount_minor !== null && e.amount_minor <= c.auto_post_limit_minor);
 }
 
 /** A document is done when nothing is left to decide. */

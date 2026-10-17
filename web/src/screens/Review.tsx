@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, c, ApiError, type Posted, type Preview, type VoucherInput, type ItemLineInput } from '../api';
 import { useApp } from '../state';
 import { useKeys } from '../keys';
@@ -42,20 +42,23 @@ export function ReviewDoc({ params }: { params: { id: string } }) {
       setNewParty({ name: p.name, gstin: p.gstin ?? '', stateCode: p.stateCode ?? '', creditDays: p.creditDays ? String(p.creditDays) : '' });
     }
   }, [params.id]);
-  useEffect(() => { void load(); }, [load]);
+  const loadSafely = useCallback(() => load().catch((e) => setErr(e instanceof ApiError ? { message: e.message } : { message: String(e) })), [load]);
+  useEffect(() => { void loadSafely(); }, [loadSafely]);
   useEffect(() => {
-    if (d && (d.status === 'RECEIVED' || d.status === 'PROCESSING')) { const t = setTimeout(() => void load(), 2000); return () => clearTimeout(t); }
-  }, [d, load]);
+    if (d && (d.status === 'RECEIVED' || d.status === 'PROCESSING')) { const t = setTimeout(() => void loadSafely(), 2000); return () => clearTimeout(t); }
+  }, [d, loadSafely]);
 
   useEffect(() => {
     if (!draft) return;
+    // Only the newest preview may land; an older, slower reply would show the wrong totals.
+    let live = true;
     const t = setTimeout(async () => {
       try {
         const p = await api.post<Preview>(c('/vouchers/preview'), { ...draft, paymentMode: draft.counterpartyId ? draft.paymentMode : 'CASH', confirmWarnings: true });
-        setPreview(p);
-      } catch { setPreview(null); }
+        if (live) setPreview(p);
+      } catch { if (live) setPreview(null); }
     }, 250);
-    return () => clearTimeout(t);
+    return () => { live = false; clearTimeout(t); };
   }, [draft]);
 
   const customer = d?.matches?.partyRole === 'customer';
@@ -73,8 +76,11 @@ export function ReviewDoc({ params }: { params: { id: string } }) {
 
   const setLine = (i: number, patch: Partial<ItemLineInput>) => setDraft((dr) => dr && ({ ...dr, items: dr.items!.map((l, j) => (j === i ? { ...l, ...patch } : l)) }));
 
+  // A second Ctrl+A while the first is still posting must not send the bill again.
+  const posting = useRef(false);
   const accept = async () => {
-    if (!draft || !d) return;
+    if (!draft || !d || posting.current) return;
+    posting.current = true;
     try {
       const posted = await api.post<Posted>(c(`/documents/${d.id}/accept`), {
         draft,
@@ -87,17 +93,24 @@ export function ReviewDoc({ params }: { params: { id: string } }) {
     } catch (e) {
       if (e instanceof ApiError && e.code === 'CONFIRM_WARNINGS') setConfirm((e.details as { warnings: { message: string }[] }).warnings.map((w) => w.message));
       else setErr(e instanceof ApiError ? { message: e.message, details: e.details } : { message: String(e) });
-    }
+    } finally { posting.current = false; }
   };
   const reject = async () => {
     if (!d || !window.confirm('Reject this document? Nothing will be posted.')) return;
-    await api.post(c(`/documents/${d.id}/reject`), {});
-    app.bumpData();
-    app.back();
+    try {
+      await api.post(c(`/documents/${d.id}/reject`), {});
+      app.bumpData();
+      app.back();
+    } catch (e) { setErr(e instanceof ApiError ? { message: e.message, details: e.details } : { message: String(e) }); }
+  };
+  const retry = async () => {
+    if (!d) return;
+    try { await api.post(c(`/documents/${d.id}/retry`), {}); await load(); }
+    catch (e) { setErr(e instanceof ApiError ? { message: e.message, details: e.details } : { message: String(e) }); }
   };
   useKeys({ 'Ctrl+A': () => { void accept(); }, 'Alt+R': () => { void reject(); } });
 
-  if (!d) return <div className="muted">Loading…</div>;
+  if (!d) return err ? <ErrorBox error={err} /> : <div className="muted">Loading…</div>;
   const fileUrl = c(`/documents/${d.id}/file`);
   const printed = d.extraction?.totals.grand_total.value;
   const ours = preview ? BigInt(preview.totalMinor) : null;
@@ -111,7 +124,7 @@ export function ReviewDoc({ params }: { params: { id: string } }) {
   return (
     <div className="review">
       <ScreenHead title={title} sub={`${d.fileName} · ${TYPE_LABEL[voucherType] ?? ''} · ${DOC_STATUS[d.status]}${d.model ? ` · read by ${d.model}` : ''}`}>
-        {d.status === 'FAILED' && <button onClick={() => void api.post(c(`/documents/${d.id}/retry`), {}).then(load)}>Retry</button>}
+        {d.status === 'FAILED' && <button onClick={() => void retry()}>Retry</button>}
         {editable && draft && <button className="danger" onClick={() => void reject()}>Reject <Kbd>Alt+R</Kbd></button>}
         {editable && draft && <button className="primary" onClick={() => void accept()}>Post {TYPE_LABEL[voucherType]?.toLowerCase()} <Kbd>Ctrl+A</Kbd></button>}
         {d.voucherId && <button onClick={() => app.go({ screen: 'voucher-view', params: { id: d.voucherId } })}>Open voucher</button>}

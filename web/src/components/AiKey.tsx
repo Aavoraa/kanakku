@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { api, ApiError } from '../api';
 import { useApp } from '../state';
 import { ErrorBox, Modal } from './ui';
+import { AiDataNotice } from './Privacy';
 
-interface KeyStatus { enabled: boolean; model: string; hint: string | null; source: 'app' | 'environment' | null }
+interface KeyStatus { enabled: boolean; model: string; hint: string | null; source: 'app' | 'environment' | null; canChange?: boolean }
 
 /** Enter, replace or remove the Anthropic API key. The server checks it with Anthropic before saving. */
 export function AiKeyDialog({ onClose }: { onClose: () => void }) {
@@ -13,9 +14,10 @@ export function AiKeyDialog({ onClose }: { onClose: () => void }) {
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<{ message: string } | null>(null);
-  const owner = app.companies.some((c) => c.role === 'OWNER');
+  // The key serves every company on this computer, so only the administrator (the first account) changes it.
+  const [canChange, setCanChange] = useState(false);
 
-  useEffect(() => { void api.get<KeyStatus>('/api/v1/settings/ai-key').then(setSt).catch(() => {}); }, []);
+  useEffect(() => { void api.get<KeyStatus>('/api/v1/settings/ai-key').then((s) => { setSt(s); setCanChange(Boolean(s.canChange)); }).catch(() => {}); }, []);
 
   const fail = (e: unknown) => setErr({ message: e instanceof ApiError ? e.message : String(e) });
   const save = async () => {
@@ -48,8 +50,8 @@ export function AiKeyDialog({ onClose }: { onClose: () => void }) {
 
         {st?.source === 'environment' ? (
           <p className="muted">This key is set in the computer's environment variables, so it is changed there, not here.</p>
-        ) : !owner ? (
-          <p className="muted">Only a company owner can change the API key.</p>
+        ) : !canChange ? (
+          <p className="muted">Only the administrator (the first account created on this computer) can change the API key.</p>
         ) : (
           <form onSubmit={(e) => { e.preventDefault(); void save(); }}>
             <label>{st?.enabled ? 'Replace with a new API key' : 'Anthropic API key'}
@@ -61,6 +63,7 @@ export function AiKeyDialog({ onClose }: { onClose: () => void }) {
             </label>
             <p className="muted small">Create one at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com → API keys</a>.
               It is checked with Anthropic, then saved in the <code>.env</code> file in the project folder on this computer. The browser never gets it back.</p>
+            <AiDataNotice />
             <ErrorBox error={err} />
             <div className="form-actions">
               {st?.enabled && st.source === 'app' && <button type="button" className="danger" onClick={() => void remove()} disabled={busy}>Remove key</button>}

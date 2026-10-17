@@ -6,6 +6,7 @@ import { Picker, type Option } from '../components/Picker';
 import { Empty, ErrorBox, Kbd, ScreenHead } from '../components/ui';
 import { fmtDate, fromMinor, inr, TYPE_LABEL } from '../format';
 import { DOC_STATUS, ReviewDoc } from './Review';
+import { AiDataNotice } from '../components/Privacy';
 
 export const DOC_TYPE_LABEL: Record<string, string> = {
   PURCHASE_BILL: 'Purchase bill', EXPENSE_RECEIPT: 'Expense receipt', SALES_INVOICE: 'Sales invoice',
@@ -43,6 +44,14 @@ export function DocumentsQueue({ params }: { params?: { upload?: boolean } }) {
   const banks = app.masters.ledgers.filter((l) => l.isCashBank && l.systemCode !== 'CASH');
 
   const load = useCallback(() => api.get<DocRow[]>(c('/documents')).then(setDocs), []);
+  const remove = async (d: DocRow) => {
+    if (!window.confirm(`Delete ${d.fileName}? The file and anything not yet posted from it are removed. This cannot be undone.`)) return;
+    try {
+      await api.delete(c(`/documents/${d.id}`));
+      app.toast(`Deleted ${d.fileName}`);
+      await load();
+    } catch (x) { app.toast(x instanceof ApiError ? x.message : String(x), 'error'); }
+  };
   useEffect(() => { void load(); }, [load, app.dataVersion]);
   useEffect(() => {
     if (!docs.some((d) => d.status === 'RECEIVED' || d.status === 'PROCESSING')) return;
@@ -103,6 +112,7 @@ export function DocumentsQueue({ params }: { params?: { upload?: boolean } }) {
         )}
       </div>
       {!app.status.aiEnabled && <div className="warn small">AI is off: Excel and CSV files (bank statements, journal sheets, invoice registers) are read without it. PDFs, photos and free-form workings need it. <button className="link" onClick={() => app.setAiKeyOpen(true)}>Enter your API key</button></div>}
+      {app.status.aiEnabled && <AiDataNotice compact />}
       <input ref={fileRef} type="file" multiple hidden
         accept="application/pdf,image/jpeg,image/png,image/webp,.csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         onChange={(e) => { if (e.target.files?.length) void upload(e.target.files); e.target.value = ''; }} />
@@ -114,7 +124,7 @@ export function DocumentsQueue({ params }: { params?: { upload?: boolean } }) {
       {uploadErrors.map((e) => <div key={e} className="error-box">{e}</div>)}
       {docs.length === 0 ? <Empty>No documents yet.</Empty> : (
         <table className="list selectable">
-          <thead><tr><th>Uploaded</th><th>File</th><th>Type</th><th>Details</th><th>Status</th></tr></thead>
+          <thead><tr><th>Uploaded</th><th>File</th><th>Type</th><th>Details</th><th>Status</th><th></th></tr></thead>
           <tbody>{docs.map((d) => {
             const multi = d.docType && MULTI.has(d.docType);
             return (
@@ -128,6 +138,10 @@ export function DocumentsQueue({ params }: { params?: { upload?: boolean } }) {
                 <td><span className={`status st-${d.status.toLowerCase()}`}>{DOC_STATUS[d.status]}</span>
                   {d.errors > 0 && d.status === 'NEEDS_REVIEW' && <small className="bad"> · {d.errors} to fix</small>}
                   {d.error && <small className="bad"> · {d.error.slice(0, 90)}</small>}</td>
+                <td className="actions">
+                  {d.status !== 'RECEIVED' && d.status !== 'PROCESSING' &&
+                    <button className="ghost danger" title="Delete this document" onClick={(e) => { e.stopPropagation(); void remove(d); }} onKeyDown={(e) => e.stopPropagation()}>Delete</button>}
+                </td>
               </tr>
             );
           })}</tbody>

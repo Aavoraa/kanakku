@@ -132,6 +132,8 @@ async function tradingPlan(
     placeOfSupply,
     pricesIncludeTax: input.pricesIncludeTax,
     roundToRupee: ctx.company.round_invoice && !rcm,
+    // Supplies to or from an SEZ unit, and imports/exports (overseas party, or place of supply outside India), are IGST.
+    forceInterState: party?.gst_reg_type === 'SEZ' || party?.gst_reg_type === 'OVERSEAS' || placeOfSupply === '96' || placeOfSupply === '97',
   });
 
   const entries: PlanEntry[] = [];

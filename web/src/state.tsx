@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { api, c, onUnauthenticated, setCompany, type Company, type Group, type Item, type Ledger, type Party, type Status, type Uom, type User } from './api';
 import { AuthScreen } from './screens/Auth';
 import { CompanyForm } from './components/CompanyForm';
@@ -73,12 +73,16 @@ export function AppProvider({ children }: { children: (toasts: { id: number; msg
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === 'error' ? 7000 : 4000);
   }, []);
 
+  const mastersCall = useRef(0);
   const refreshMasters = useCallback(async () => {
+    // Only the newest call may apply, so a slow refresh started before a company switch cannot
+    // fill in the other company's ledgers.
+    const call = ++mastersCall.current;
     const [ledgers, parties, items, groups, uoms] = await Promise.all([
       api.get<Ledger[]>(c('/ledgers')), api.get<Party[]>(c('/parties')), api.get<Item[]>(c('/items')),
       api.get<Group[]>(c('/groups')), api.get<Uom[]>(c('/uoms')),
     ]);
-    setMasters({ ledgers, parties, items, groups, uoms });
+    if (call === mastersCall.current) setMasters({ ledgers, parties, items, groups, uoms });
   }, []);
 
   /** Loads the user's companies and opens one: the requested one, the last used, or the first. */

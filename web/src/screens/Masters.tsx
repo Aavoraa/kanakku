@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, c, ApiError } from '../api';
 import { useApp } from '../state';
 import { useKeys } from '../keys';
@@ -142,6 +142,53 @@ export function Settings() {
       <h3>AI</h3>
       <p>{app.status.aiEnabled ? `Bill reading and voice are on (model ${app.status.model}).` : 'Bill reading from PDFs and photos, and voice, are off.'}</p>
       <button onClick={() => app.setAiKeyOpen(true)}>{app.status.aiEnabled ? 'Manage API key' : 'Enter API key'}</button>
+      <Backups />
     </div>
+  );
+}
+
+interface BackupList { dir: string; files: { name: string; bytes: number }[] }
+
+/** Whole-database backups: one is made automatically each day; the administrator can make and download them. */
+function Backups() {
+  const app = useApp();
+  const [list, setList] = useState<BackupList | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api.get<BackupList>('/api/v1/backups').then((l) => { if (live) setList(l); })
+      .catch((e) => { if (live) setErr(e instanceof ApiError ? e.message : String(e)); });
+    return () => { live = false; };
+  }, []);
+  const backupNow = async () => {
+    setBusy(true);
+    try {
+      const made = await api.post<{ name: string }>('/api/v1/backups', {});
+      setList(await api.get<BackupList>('/api/v1/backups'));
+      app.toast(`Backup saved: ${made.name}`);
+    } catch (e) { setErr(e instanceof ApiError ? e.message : String(e)); } finally { setBusy(false); }
+  };
+  const size = (b: number) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.ceil(b / 1e3)} KB`);
+  return (
+    <>
+      <h3>Backups</h3>
+      <p>A copy of the whole database (every company on this computer) is saved once a day; the last 14 are kept.
+        Keep a recent one somewhere else too, such as a USB drive or cloud storage.</p>
+      {err && <p className="muted">{err}</p>}
+      {list && (
+        <>
+          <p className="muted small">Saved in <code>{list.dir}</code>. To restore one, stop the server and run <code>npm run restore-backup -- &lt;file&gt;</code>.</p>
+          <button onClick={() => void backupNow()} disabled={busy}>{busy ? 'Backing up…' : 'Back up now'}</button>
+          {list.files.length > 0 && (
+            <ul className="small">
+              {list.files.slice(0, 5).map((f) => (
+                <li key={f.name}><a href={`/api/v1/backups/${encodeURIComponent(f.name)}`} download>{f.name}</a> <span className="muted">({size(f.bytes)})</span></li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </>
   );
 }

@@ -145,7 +145,11 @@ export interface NewParty {
   creditDays?: number | null;
   openingBalance?: string | null;   // + receivable for customers / payable for suppliers
   status?: 'ACTIVE' | 'PROVISIONAL';
+  /** Only needed for parties that are not plain registered / unregistered businesses. */
+  regType?: 'REGULAR' | 'COMPOSITION' | 'UNREGISTERED' | 'CONSUMER' | 'SEZ' | 'OVERSEAS' | null;
 }
+
+const REG_TYPES = new Set(['REGULAR', 'COMPOSITION', 'UNREGISTERED', 'CONSUMER', 'SEZ', 'OVERSEAS']);
 
 export async function createParty(db: PGlite, companyId: string, p: NewParty, userId: string, channel = 'MANUAL') {
   const name = p.name.trim();
@@ -159,12 +163,14 @@ export async function createParty(db: PGlite, companyId: string, p: NewParty, us
   const nameTaken = await maybeOne(db, `SELECT 1 FROM ledgers WHERE company_id = $1 AND lower(name) = lower($2)`, [companyId, name]);
   if (nameTaken) throw new AppError('DUPLICATE_NAME', 409, `A ledger named "${name}" already exists`);
 
+  if (p.regType && !REG_TYPES.has(p.regType)) throw invalid('Unknown GST registration type');
+  const regType = p.regType || (gstin ? 'REGULAR' : 'UNREGISTERED');
   const group = await groupByCode(db, companyId, p.kind === 'CUSTOMER' ? 'SUNDRY_DEBTORS' : 'SUNDRY_CREDITORS');
   const result = await db.transaction(async (tx) => {
     const cp = await one<{ id: string }>(tx,
       `INSERT INTO counterparties (company_id, legal_name, norm_name, gstin, pan, gst_reg_type, state_code, city, phone, credit_days, status)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-      [companyId, name, normName(name), gstin, gstin ? gstinPan(gstin) : null, gstin ? 'REGULAR' : 'UNREGISTERED',
+      [companyId, name, normName(name), gstin, gstin ? gstinPan(gstin) : null, regType,
         gstin ? gstinState(gstin) : p.stateCode ?? null, p.city ?? null, p.phone ?? null, p.creditDays ?? null, p.status ?? 'ACTIVE']);
     const ledger = await one<{ id: string }>(tx,
       `INSERT INTO ledgers (company_id, group_id, name, norm_name, counterparty_id, bill_wise) VALUES ($1,$2,$3,$4,$5,true) RETURNING id`,

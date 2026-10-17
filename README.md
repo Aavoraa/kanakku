@@ -12,6 +12,12 @@ to the ledger; a deterministic posting engine is the only path into it.
 Requires Node.js 22 or later. Nothing else to install: the database is PostgreSQL compiled to
 WebAssembly ([PGlite](https://pglite.dev)), stored in `./data`.
 
+**Keep the project (or at least `data`) out of OneDrive, Dropbox and Google Drive.** A sync client
+rewriting the live database files can corrupt them, and `.env` holds your API key. Put the project in a
+plain folder such as `C:\Projects\Kannaku`, or set `DATA_DIR=C:\KannakuData` in `.env`. The server warns
+at startup when the database is in a synced folder. Only one server may use a data folder at a time; a
+second one (or a script such as `reset-password`) refuses to start while the first is running.
+
 ```bash
 npm install
 npm start            # builds the web app and serves everything on http://127.0.0.1:4000
@@ -35,7 +41,9 @@ For development with hot reload: `npm run dev`, then open http://localhost:5173.
 Click **AI off** in the top bar, paste your Anthropic API key (from
 [console.anthropic.com → API keys](https://console.anthropic.com/settings/keys)) and press **Turn AI on**.
 The key is checked with Anthropic, saved to `.env` in the project folder, and used at once; no
-restart. Click **AI on** later to replace or remove it. Only a company owner can change the key.
+restart. Click **AI on** later to replace or remove it. The key serves every company on this computer,
+so only the administrator (the first account created) can change it. See [Privacy](#privacy) for what is
+sent to Anthropic once AI is on.
 
 You can also put `ANTHROPIC_API_KEY=...` in `.env` yourself (see `.env.example`) and restart.
 Without a key everything else works, including Excel and CSV uploads.
@@ -84,6 +92,14 @@ workings sheet and a sales register to `./samples`, dated to match the demo vouc
 | `npm run reset-db` | Deletes `./data` (all accounts and books); the next start shows sign-up again |
 | `npm run demo:bill` | Puts a sample extracted bill into the review queue (server must be stopped) |
 | `npm run samples --workspace server` | Writes sample documents to `./samples` for the Documents screen |
+| `npm run restore-backup -- <file>` | Replaces the database with a backup (server must be stopped); the replaced one is kept beside it. No file lists the backups |
+
+### Backups
+
+While the server runs it saves a copy of the whole database (every company on this computer) once a
+day to `data/backups` (or `BACKUP_DIR`), keeping the last 14. The administrator can also press
+**Back up now** and download a backup in Settings. Backup files are complete copies of everyone's books
+and are not encrypted: keep them somewhere only you can reach, and keep one off this computer too.
 
 `npm audit` reports a moderate advisory in `uuid`, pulled in by `exceljs`. The advisory concerns
 `uuid.v3/v5/v6` with a caller-supplied buffer; exceljs only calls `uuid.v4`, so it does not apply.
@@ -113,7 +129,7 @@ server/  Fastify + PGlite (TypeScript, run with tsx)
   src/db/migrations   schema: append-only ledger tables, deferred balance trigger, ltree groups, pg_trgm matching
   src/ledger          contracts (Zod), posting plans per voucher type, posting engine, masters
   src/tax             India GST engine (CGST/SGST/UTGST/IGST, inclusive pricing, round-off, RCM)
-  src/inventory       FIFO and moving-average valuation (periodic, Tally model)
+  src/inventory       FIFO and moving-average valuation (periodic: recomputed from movements for each report date)
   src/reports         trial balance, P&L, balance sheet, ageing, daybook, ledger, GST summary
   src/ai              bill extraction (Claude, structured output) + validators + resolver; voice intent engine
 web/     React 19 + Vite, no UI framework; one keymap registry drives every shortcut
@@ -145,13 +161,16 @@ The voice panel is a chat: speak (tap the mic or hold Ctrl+Space) or type, and r
 (▶ on any reply plays it again; 🔊 mutes). After a question it listens for your answer. Pick the
 language at the top of the panel; the choice is remembered per browser.
 
-**Wake word.** Whenever AI is on, the app listens for "Kannaku"; no click needed. Say "Kannaku" and
-your question in one go ("Kannaku, ABC Corp evvalavu baaki?"), or say "Kannaku", wait for the
-chime, and ask. A green dot on the Voice button shows it is listening; untick **Start by saying
-"Kannaku"** in the voice panel to turn it off. The word only counts at the start of a sentence, so
-everyday use of கணக்கு doesn't trigger it. While it is on, the browser's speech service (Google in
-Chrome, Microsoft in Edge) hears the microphone continuously. It works while the Kannaku AI tab is
-open; the browser asks for microphone permission the first time.
+The first time you use the microphone the panel explains where the audio goes (see [Privacy](#privacy))
+and asks you to agree; until then the microphone is never turned on, and typing still works.
+
+**Wake word (off by default).** Tick **Start by saying "Kannaku"** in the voice panel and agree to the
+hands-free notice. Then say "Kannaku" and your question in one go ("Kannaku, ABC Corp evvalavu
+baaki?"), or say "Kannaku", wait for the chime, and ask. A green dot on the Voice button shows it is
+listening; untick the box to turn it off. The word only counts at the start of a sentence, so everyday
+use of கணக்கு doesn't trigger it. Listening pauses while the tab is hidden. In a hands-free
+conversation a bare "yes" or "sari" never posts (it may be someone else talking nearby): say
+"Kannaku, confirm" / "Kannaku sari", or press Ctrl+A.
 
 | Language | Speech recognition | Readback | Notes |
 | --- | --- | --- | --- |
@@ -163,7 +182,36 @@ Tamil script in what you say switches replies to Tamil even when English is sele
 names stay in English in the books; Tamil speech is transliterated to find them, and the model matches
 names by sound. Spoken Tamil replies need a Tamil voice in the browser: Microsoft Edge includes one;
 without it, replies are shown as text. The Tamil message templates are in
-`server/src/ai/voice/i18n.ts` and should be reviewed by a native speaker before customers use them.
+`server/src/ai/voice/i18n.ts` (and a few in `web/src/components/Voice.tsx`) and should be reviewed by a
+native speaker before customers use them.
+
+## Privacy
+
+What leaves this computer, and to whom:
+
+| What | Goes to | When |
+| --- | --- | --- |
+| PDFs and photos you upload; Excel/CSV sheets the app cannot read by itself | Anthropic (Claude API) | AI is on |
+| Bank statement lines no rule or earlier choice matches (date, amount, narration) | Anthropic | AI is on |
+| What you say or type to the voice assistant | Anthropic | AI is on |
+| Your company name and GSTIN, and ledger, party and item names, with each of the above | Anthropic | AI is on |
+| Microphone audio | Google (Chrome) or Microsoft (Edge) speech recognition | You use the mic, or the wake word is on |
+
+Recognised Excel/CSV statements, journals and registers are read on this computer. Kannaku AI never
+receives or stores audio, only the text the browser produces; voice requests are kept in the company's
+voice log. The app shows these notices where they apply: in the AI key dialog, on the Documents
+screen and before the microphone is first used. Anthropic's
+[commercial terms](https://www.anthropic.com/legal/commercial-terms) say it does not train its models on
+API data by default; see its [privacy policy](https://www.anthropic.com/legal/privacy).
+
+The documents you upload contain your customers' and suppliers' details (names, GSTINs, account
+numbers). If you run Kannaku AI for a business, check that your own privacy notice to them, and India's
+Digital Personal Data Protection Act, allow sending them to these services, and tell your staff before
+they use voice.
+
+Tally and TallyPrime are trademarks of Tally Solutions Pvt. Ltd. Kannaku AI is not affiliated with or
+endorsed by Tally Solutions; it follows familiar Indian accounting conventions (the 28 standard groups,
+voucher keys) so it is easy to pick up.
 
 ## Not built yet
 

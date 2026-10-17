@@ -7,13 +7,18 @@ import { Empty, Kbd, ScreenHead, Tree } from '../components/ui';
 import { drcr, fmtDate, fyStart, inr, pct } from '../format';
 
 function useReport<T>(path: string | null, deps: unknown[]) {
-  const { dataVersion } = useApp();
+  const { dataVersion, toast } = useApp();
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (!path) return;
+    // Ignore the reply to a request the user has already moved on from (changed dates, left the screen).
+    let live = true;
     setError(null);
-    void api.get<T>(c(path)).then(setData).catch((e) => setError(String(e.message)));
+    void api.get<T>(c(path))
+      .then((d) => { if (live) setData(d); })
+      .catch((e) => { if (live) { setError(String(e.message)); toast(`Report failed: ${String(e.message)}`, 'error'); } });
+    return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, dataVersion, ...deps]);
   return { data, error };
@@ -229,8 +234,9 @@ export function GstSummary() {
   const [to, setTo] = useState(app.status.today);
   const [from, setFrom] = useState(`${app.status.today.slice(0, 8)}01`);
   type G = {
-    byComponent: { component: string; outputMinor: string; rcmMinor: string; itcMinor: string; netPayableMinor: string }[];
+    byComponent: { component: string; outputMinor: string; rcmMinor: string; itcMinor: string; paidByCreditMinor: string; cashMinor: string; carryForwardMinor: string }[];
     netPayableMinor: string;
+    carryForwardMinor: string;
     salesByRate: { kind: string; supply: string; ratePpm: number; taxableMinor: string; taxMinor: string }[];
   };
   const { data } = useReport<G>(`/reports/gst-summary?from=${from}&to=${to}`, []);
@@ -241,10 +247,19 @@ export function GstSummary() {
       </ScreenHead>
       {data && <>
         <table className="list">
-          <thead><tr><th>Tax</th><th className="num">Output ₹</th><th className="num">RCM ₹</th><th className="num">Input credit ₹</th><th className="num">Net payable ₹</th></tr></thead>
-          <tbody>{data.byComponent.map((r) => <tr key={r.component}><td>{r.component}</td><td className="num">{inr(r.outputMinor)}</td><td className="num">{inr(r.rcmMinor, { blankZero: true })}</td><td className="num">{inr(r.itcMinor)}</td><td className="num">{inr(r.netPayableMinor)}</td></tr>)}</tbody>
-          <tfoot><tr><td colSpan={4}>{BigInt(data.netPayableMinor) >= 0n ? 'Net GST payable' : 'Excess input credit carried forward'}</td><td className="num">{inr(data.netPayableMinor, { abs: true })}</td></tr></tfoot>
+          <thead><tr><th>Tax</th><th className="num">Output ₹</th><th className="num">Input credit ₹</th><th className="num">Paid by credit ₹</th><th className="num">RCM (cash) ₹</th><th className="num">Cash payable ₹</th><th className="num">Credit carried ₹</th></tr></thead>
+          <tbody>{data.byComponent.map((r) => (
+            <tr key={r.component}><td>{r.component}</td><td className="num">{inr(r.outputMinor)}</td><td className="num">{inr(r.itcMinor)}</td>
+              <td className="num">{inr(r.paidByCreditMinor, { blankZero: true })}</td><td className="num">{inr(r.rcmMinor, { blankZero: true })}</td>
+              <td className="num">{inr(r.cashMinor)}</td><td className="num">{inr(r.carryForwardMinor, { blankZero: true })}</td></tr>
+          ))}</tbody>
+          <tfoot>
+            <tr><td colSpan={5}>GST payable in cash</td><td className="num">{inr(data.netPayableMinor)}</td><td /></tr>
+            {BigInt(data.carryForwardMinor) > 0n && <tr><td colSpan={6}>Input credit carried forward</td><td className="num">{inr(data.carryForwardMinor)}</td></tr>}
+          </tfoot>
         </table>
+        <p className="muted small">Credit is set off in the legal order: IGST credit first (against IGST, then CGST and SGST); CGST credit never pays SGST,
+          nor SGST credit CGST. Tax under reverse charge is paid in cash.</p>
         <h3>Outward supplies by rate</h3>
         {data.salesByRate.length === 0 ? <Empty>No taxable sales in this period.</Empty> : (
           <table className="list">

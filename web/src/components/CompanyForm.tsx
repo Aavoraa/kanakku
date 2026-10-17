@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { api, ApiError } from '../api';
-import { fyStart } from '../format';
+import { fyStart, todayIST } from '../format';
 import { ErrorBox } from './ui';
 
 export interface CompanyDetails { name: string; gstin: string; stateCode: string; booksFrom: string }
@@ -60,7 +60,7 @@ export const companyReady = (c: CompanyDetails) => Boolean(c.name.trim() && (c.g
 
 /** Stand-alone "add a business" form for logged-in users. */
 export function CompanyForm({ states, submitLabel, onCreated }: { states: Record<string, string>; submitLabel: string; onCreated: (id: string) => void }) {
-  const [value, setValue] = useState<CompanyDetails>(() => blankCompany(new Date().toISOString().slice(0, 10)));
+  const [value, setValue] = useState<CompanyDetails>(() => blankCompany(todayIST()));
   const [err, setErr] = useState<{ message: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const submit = async () => {

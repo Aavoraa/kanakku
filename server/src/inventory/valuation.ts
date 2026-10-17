@@ -66,8 +66,15 @@ export function closingMovingAverage(moves: Move[], allowNegative = false): Clos
     const avg = qty.gt(0) ? value.div(qty) : lastAvg;
     if (m.qty.gt(0)) {
       const cost = m.unitCost ?? avg;
-      qty = qty.plus(m.qty);
-      value = value.plus(m.qty.times(cost));
+      if (qty.lt(0)) {
+        // Inward first settles the units sold while stock was negative, at this cost (as FIFO does);
+        // whatever is left over is stock at this cost.
+        qty = qty.plus(m.qty);
+        value = qty.times(cost);
+      } else {
+        qty = qty.plus(m.qty);
+        value = value.plus(m.qty.times(cost));
+      }
       lastAvg = qty.gt(0) ? value.div(qty) : cost;
     } else {
       if (!allowNegative && qty.plus(m.qty).lt(0)) throw new NegativeStockError('stock would go negative');

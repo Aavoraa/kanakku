@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { PGlite } from '@electric-sql/pglite';
 import { many, maybeOne, one } from '../db/client';
@@ -14,13 +15,15 @@ import { ageing, daybook, ledgerStatement, openBills, voucherDetail } from '../r
 import { gstSummary } from '../reports/gst';
 import { dashboard } from '../reports/dashboard';
 import { stockAsOf } from '../inventory/stock';
-import { acceptDocument, documentFilePath, ingestDocument, rejectDocument, reprocessDocument, type DocOptions } from '../ai/documents';
+import { acceptDocument, deleteDocument, documentFilePath, ingestDocument, rejectDocument, reprocessDocument, type DocOptions } from '../ai/documents';
 import { listEntries, postEntry, postReady, setSkipped, updateEntry } from '../ai/intake/entries';
 import { resolveParty } from '../ai/resolver';
 import { cancelSession, confirmSession, handleUtterance } from '../ai/voice/engine';
 import { asLang } from '../ai/voice/i18n';
 import { requireUser } from '../auth/routes';
+import { isAdmin } from '../auth/auth';
 import { aiKeyStatus, removeAiKey, setAiKey } from '../ai/key';
+import { listBackups, writeBackup } from '../db/backup';
 
 type Req = FastifyRequest<{ Params: Record<string, string>; Querystring: Record<string, string | undefined>; Body: any }>;
 
@@ -47,16 +50,35 @@ export function registerRoutes(app: FastifyInstance, db: PGlite) {
     return c;
   }
 
-  // ---------- AI key (whole installation; company owners only) ----------
-  const requireOwner = async (req: Req) => {
-    const user = requireUser(req);
-    if (!await maybeOne(db, `SELECT 1 FROM company_members WHERE user_id = $1 AND role = 'OWNER'`, [user.id])) {
-      throw new AppError('FORBIDDEN', 403, 'Only a company owner can change the AI key.');
+  // ---------- Whole installation: AI key and backups (the administrator, i.e. the first account, only) ----------
+  const requireAdmin = async (req: Req, what: string) => {
+    if (!await isAdmin(db, requireUser(req).id)) {
+      throw new AppError('FORBIDDEN', 403, `Only the administrator (the first account created on this computer) can ${what}.`);
     }
   };
-  app.get('/api/v1/settings/ai-key', async (req: Req) => { requireUser(req); return aiKeyStatus(); });
-  app.put('/api/v1/settings/ai-key', async (req: Req) => { await requireOwner(req); return setAiKey(body(req).apiKey); });
-  app.delete('/api/v1/settings/ai-key', async (req: Req) => { await requireOwner(req); return removeAiKey(); });
+  app.get('/api/v1/settings/ai-key', async (req: Req) => ({ ...aiKeyStatus(), canChange: await isAdmin(db, requireUser(req).id) }));
+  app.put('/api/v1/settings/ai-key', async (req: Req) => { await requireAdmin(req, 'change the AI key'); return setAiKey(body(req).apiKey); });
+  app.delete('/api/v1/settings/ai-key', async (req: Req) => { await requireAdmin(req, 'change the AI key'); return removeAiKey(); });
+
+  app.get('/api/v1/backups', async (req: Req) => {
+    await requireAdmin(req, 'see backups');
+    const files = listBackups(config.backupDir).reverse();
+    return { dir: config.backupDir, files: files.map((f) => ({ name: f, bytes: fs.statSync(path.join(config.backupDir, f)).size })) };
+  });
+  app.post('/api/v1/backups', async (req: Req) => {
+    await requireAdmin(req, 'make backups');
+    const file = await writeBackup(db, config.backupDir);
+    return { name: path.basename(file), bytes: fs.statSync(file).size };
+  });
+  app.get('/api/v1/backups/:name', async (req: Req, reply) => {
+    await requireAdmin(req, 'download backups');
+    const name = req.params.name;
+    if (!listBackups(config.backupDir).includes(name)) throw notFound('Backup');
+    reply.header('Content-Type', 'application/gzip');
+    reply.header('Content-Disposition', `attachment; filename="${name}"`);
+    reply.header('Cache-Control', 'no-store');
+    return reply.send(fs.createReadStream(path.join(config.backupDir, name)));
+  });
 
   app.get('/api/v1/status', async () => {
     const hasUsers = Boolean(await maybeOne(db, 'SELECT 1 FROM users LIMIT 1'));
@@ -70,6 +92,12 @@ export function registerRoutes(app: FastifyInstance, db: PGlite) {
   app.patch('/api/v1/companies/:cid', async (req: Req) => {
     const c = await company(req);
     const b = body(req);
+    if (b.lockDate && (typeof b.lockDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(b.lockDate))) throw invalid('Lock date is not a valid date');
+    for (const k of ['voiceLimit', 'autoPostLimit']) {
+      if (b[k] === undefined) continue;
+      b[k] = String(b[k]).replace(/,/g, '').trim();
+      if (!/^\d+(\.\d+)?$/.test(b[k])) throw invalid('Enter the limit as an amount in rupees, like 50000');
+    }
     if (b.lockDate !== undefined) await db.query(`UPDATE companies SET lock_date = $2 WHERE id = $1`, [c.id, b.lockDate || null]);
     if (b.voiceLimit !== undefined) await db.query(`UPDATE companies SET voice_limit_minor = $2 WHERE id = $1`, [c.id, toMinor(b.voiceLimit)]);
     if (b.roundInvoice !== undefined) await db.query(`UPDATE companies SET round_invoice = $2 WHERE id = $1`, [c.id, Boolean(b.roundInvoice)]);
@@ -249,6 +277,7 @@ export function registerRoutes(app: FastifyInstance, db: PGlite) {
   });
   app.post(`${P}/documents/:id/accept`, async (req: Req) => acceptDocument(db, (await company(req)).id, req.params.id, body(req), uid(req)));
   app.post(`${P}/documents/:id/reject`, async (req: Req) => { await rejectDocument(db, (await company(req)).id, req.params.id); return { ok: true }; });
+  app.delete(`${P}/documents/:id`, async (req: Req) => { await deleteDocument(db, (await company(req)).id, req.params.id, uid(req)); return { ok: true }; });
   app.post(`${P}/documents/:id/retry`, async (req: Req) => {
     const c = await company(req);
     await reprocessDocument(db, c.id, req.params.id, docOptions(body(req)));

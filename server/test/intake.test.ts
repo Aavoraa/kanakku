@@ -33,10 +33,10 @@ import { parseAmount, parseDate } from '../src/lib/parse';
 import { parseCsv, readSheets } from '../src/ai/intake/files';
 import { parseStatementSheet } from '../src/ai/intake/statement';
 import { narrationPattern } from '../src/ai/intake/bank';
-import { ingestDocument } from '../src/ai/documents';
+import { deleteDocument, documentFilePath, ingestDocument } from '../src/ai/documents';
 import { listEntries, postEntry, postReady, updateEntry } from '../src/ai/intake/entries';
 import { createLedger, groupByCode } from '../src/ledger/masters';
-import { verifyChain } from '../src/ledger/post';
+import { reverseVoucher, verifyChain } from '../src/ledger/post';
 import { trialBalance } from '../src/reports/financials';
 
 let db: PGlite;
@@ -304,5 +304,34 @@ describe('PDFs and photos (model simulated)', () => {
     const r = await upload('scan.pdf', 'application/pdf', Buffer.from('%PDF-1.4 another'));
     expect(r.status).toBe('FAILED');
     expect(r.error).toMatch(/needs the AI/);
+  });
+});
+
+describe('deleting documents', () => {
+  it('removes a document that was never posted, with its file, so it can be uploaded again', async () => {
+    config.aiEnabled = false;
+    const data = Buffer.from('%PDF-1.4 delete me');
+    const r = await upload('wrong.pdf', 'application/pdf', data);
+    expect(r.status).toBe('FAILED');
+    const { storage_key } = await one<{ storage_key: string }>(db, `SELECT storage_key FROM documents WHERE id = $1`, [r.id]);
+    expect(fs.existsSync(documentFilePath(storage_key))).toBe(true);
+
+    await deleteDocument(db, companyId, r.id, user);
+    expect(await many(db, `SELECT 1 FROM documents WHERE id = $1`, [r.id])).toHaveLength(0);
+    expect(fs.existsSync(documentFilePath(storage_key))).toBe(false);
+    expect((await upload('wrong.pdf', 'application/pdf', data)).status).toBe('FAILED');  // no "already uploaded"
+  });
+
+  it('refuses while entries from it are in the books, and allows it once they are reversed', async () => {
+    const { document_id: docId } = await one<{ document_id: string }>(db,
+      `SELECT document_id FROM document_entries WHERE company_id = $1 AND status = 'POSTED' LIMIT 1`, [companyId]);
+    await expect(deleteDocument(db, companyId, docId, user)).rejects.toThrow(/Reverse them from the Day Book/);
+
+    const posted = await many<{ voucher_id: string }>(db, `SELECT voucher_id FROM document_entries WHERE document_id = $1 AND voucher_id IS NOT NULL`, [docId]);
+    for (const p of posted) await reverseVoucher(db, companyId, p.voucher_id, { userId: user, source: 'MANUAL' });
+    await deleteDocument(db, companyId, docId, user);
+    expect(await many(db, `SELECT 1 FROM document_entries WHERE document_id = $1`, [docId])).toHaveLength(0);
+    expect(await many(db, `SELECT 1 FROM vouchers WHERE id = ANY($1)`, [posted.map((p) => p.voucher_id)])).toHaveLength(posted.length);  // the books keep them
+    expect((await verifyChain(db, companyId)).ok).toBe(true);
   });
 });
