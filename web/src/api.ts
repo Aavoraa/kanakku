@@ -91,4 +91,17 @@ export interface Preview {
 
 export interface Posted { id: string; voucherNo: string; voucherType: string; date: string; totalMinor: string; alreadyPosted: boolean }
 
+export interface ComplianceSettings {
+  gst: boolean; gstFrequency: 'MONTHLY' | 'QUARTERLY'; gstAnnual: boolean; incomeTax: boolean; taxAudit: boolean; advanceTax: boolean; tds: boolean; remindDays: number;
+}
+export type ComplianceStatus = 'DONE' | 'OVERDUE' | 'DUE_SOON' | 'UPCOMING';
+export interface ComplianceItem {
+  key: string; kind: string; category: 'GST' | 'TDS' | 'INCOME_TAX' | 'TASK'; title: string; periodLabel: string; periodFrom: string; periodTo: string;
+  dueDate: string; due: string; extended: boolean; status: ComplianceStatus; daysLeft: number; remindDays: number;
+  estimateMinor: string | null; taskId?: string; taskCategory?: string; notes?: string | null;
+  record: { doneOn: string | null; reference: string | null; amountMinor: string | null; notes: string | null } | null;
+}
+export interface ComplianceTask { id: string; title: string; category: string; firstDue: string; repeat: string; remindDays: number; notes: string | null }
+export interface ComplianceAlerts { today: string; overdue: number; dueSoon: number; items: ComplianceItem[] }
+
 export interface TreeNode { kind: 'group' | 'ledger' | 'virtual'; id: string; name: string; amountMinor: string; children: TreeNode[] }

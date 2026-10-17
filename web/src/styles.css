@@ -381,3 +381,28 @@ button.icon { padding: 0.2rem 0.45rem; font-size: 1rem; line-height: 1; }
 .wake-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none; }
 .wake-dot.on { background: var(--ok); animation: pulse 2s infinite; }
 .voice-btn .wake-dot { margin-right: 0.4rem; vertical-align: 1px; }
+
+/* ---------- compliance calendar and the bell ---------- */
+.alerts { position: relative; }
+.bell { position: relative; padding: 0.3rem 0.55rem; line-height: 1; }
+.bell-count { position: absolute; top: -6px; right: -6px; min-width: 18px; padding: 0 4px; border-radius: 99px; background: var(--accent); color: #fff; font-size: 0.68rem; line-height: 18px; text-align: center; }
+.bell.has-overdue .bell-count { background: var(--bad); }
+.alerts-pop { min-width: 320px; max-width: min(420px, calc(100vw - 32px)); }
+.alerts-pop button span { white-space: normal; }
+.alerts-more { padding: 0.3rem 0.6rem; }
+.compliance-list td { vertical-align: top; }
+.compliance-list .row-actions { display: flex; gap: 0.35rem; justify-content: flex-end; }
+.cmp-st-overdue { background: #fde7e5; color: var(--bad); }
+.cmp-st-due_soon { background: var(--warn-bg); }
+.cmp-st-done { color: var(--ok); }
+.cmp-st-upcoming { color: var(--muted); }
+@media (prefers-color-scheme: dark) { .cmp-st-overdue { background: #3d1f1d; } .bell-count { color: #0b1620; } }
+.cmp-settings { margin-bottom: 1rem; padding: 1rem; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.due-box { margin-bottom: 1.25rem; padding: 0.75rem 1rem; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--warn-line); border-radius: 8px; }
+.due-box h2 { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-top: 0; }
+.due-box ul { list-style: none; margin: 0; padding: 0; }
+.due-box li { display: flex; flex-wrap: wrap; gap: 0.25rem 0.5rem; padding: 0.3rem 0; border-top: 1px solid var(--line); }
+.due-box li:first-child { border-top: 0; }
+.due-box li.bad strong { color: var(--bad); }
+.due-box .due-when { margin-left: auto; font-size: 0.85rem; }
+@media (max-width: 640px) { .compliance-list .row-actions { flex-direction: column; } }

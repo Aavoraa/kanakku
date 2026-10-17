@@ -15,6 +15,8 @@ import { fmtDate } from './format';
 import { Modal } from './components/ui';
 import { CompanyForm } from './components/CompanyForm';
 import { AiKeyDialog } from './components/AiKey';
+import { AlertsBell } from './components/Alerts';
+import { Compliance } from './screens/Compliance';
 
 const VOUCHER_KEYS: Record<string, string> = { F4: 'CONTRA', F5: 'PAYMENT', F6: 'RECEIPT', F7: 'JOURNAL', F8: 'SALES', F9: 'PURCHASE', 'Alt+F6': 'CREDIT_NOTE', 'Alt+F5': 'DEBIT_NOTE' };
 
@@ -35,6 +37,7 @@ function Screen({ route }: { route: Route }) {
     case 'review': return <DocumentsQueue params={p} />;
     case 'review-doc': return <DocumentScreen params={p as { id: string }} />;
     case 'settings': return <Settings />;
+    case 'compliance': return <Compliance />;
     default: return <Gateway />;
   }
 }
@@ -74,6 +77,7 @@ function Shell({ toasts }: { toasts: { id: number; msg: string; kind: string }[]
             title={wake ? 'Listening for “Kannaku”. Hold Ctrl+Space to talk' : 'Hold Ctrl+Space to talk'}>{wake && <span className="wake-dot on" aria-label="Listening for Kannaku" />}Voice <Kbd>Ctrl+Space</Kbd></button>
           <button className={`ai-chip ${app.status.aiEnabled ? 'on' : 'off'}`} onClick={() => app.setAiKeyOpen(true)}
             title={app.status.aiEnabled ? `AI on, model ${app.status.model}. Click to manage the API key` : 'Click to enter your Anthropic API key'}>AI {app.status.aiEnabled ? 'on' : 'off'}</button>
+          <AlertsBell />
           <UserMenu />
         </div>
       </header>

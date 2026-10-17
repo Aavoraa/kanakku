@@ -5,7 +5,7 @@ import { CompanyForm } from './components/CompanyForm';
 
 export type Screen =
   | 'gateway' | 'voucher' | 'daybook' | 'voucher-view' | 'tb' | 'pl' | 'bs' | 'ageing' | 'ledger'
-  | 'stock' | 'gst' | 'masters' | 'review' | 'review-doc' | 'settings';
+  | 'stock' | 'gst' | 'masters' | 'review' | 'review-doc' | 'settings' | 'compliance';
 
 export interface Route { screen: Screen; params?: Record<string, any> }
 

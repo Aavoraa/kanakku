@@ -5,7 +5,8 @@ import type { PGlite } from '@electric-sql/pglite';
 import { many, maybeOne, one } from '../db/client';
 import { config } from '../config';
 import { AppError, invalid, notFound } from '../lib/errors';
-import { fyStart, todayIST } from '../lib/dates';
+import { addDays, daysBetween, fyStart, todayIST } from '../lib/dates';
+import { complianceAlerts, complianceItems, complianceSettings, createTask, deleteTask, listTasks, saveRecord, updateComplianceSettings } from '../compliance/service';
 import { STATES, isValidGstin } from '../lib/gstin';
 import { toMinor } from '../lib/money';
 import { createGroup, createItem, createLedger, createParty, listGroups, setOpeningBalance } from '../ledger/masters';
@@ -221,6 +222,21 @@ export function registerRoutes(app: FastifyInstance, db: PGlite) {
     return gstSummary(db, c.id, date(req.query.from, `${to.slice(0, 7)}-01`), to);
   });
   app.get(`${P}/audit/verify-chain`, async (req: Req) => verifyChain(db, (await company(req)).id));
+
+  // ---------- Compliance calendar: GST / TDS / income-tax due dates, filing records, own reminders ----------
+  app.get(`${P}/compliance`, async (req: Req) => {
+    const c = await company(req);
+    const today = todayIST();
+    const from = date(req.query.from, addDays(today, -31));
+    const to = date(req.query.to, addDays(today, 92));
+    if (from > to || daysBetween(from, to) > 800) throw invalid('Choose a period of up to two years');
+    return { from, to, today, settings: await complianceSettings(db, c.id), items: await complianceItems(db, c.id, from, to, today), tasks: await listTasks(db, c.id) };
+  });
+  app.get(`${P}/compliance/alerts`, async (req: Req) => complianceAlerts(db, (await company(req)).id));
+  app.put(`${P}/compliance/settings`, async (req: Req) => updateComplianceSettings(db, (await company(req)).id, body(req), uid(req)));
+  app.put(`${P}/compliance/records/:key`, async (req: Req) => saveRecord(db, (await company(req)).id, req.params.key, body(req), uid(req)));
+  app.post(`${P}/compliance/tasks`, async (req: Req) => createTask(db, (await company(req)).id, body(req), uid(req)));
+  app.delete(`${P}/compliance/tasks/:id`, async (req: Req) => { await deleteTask(db, (await company(req)).id, req.params.id, uid(req)); return { ok: true }; });
 
   // ---------- Documents: bills, invoices, bank statements, workings, registers ----------
   const docOptions = (raw: Record<string, unknown>): DocOptions => ({

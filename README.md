@@ -104,6 +104,38 @@ and are not encrypted: keep them somewhere only you can reach, and keep one off 
 `npm audit` reports a moderate advisory in `uuid`, pulled in by `exceljs`. The advisory concerns
 `uuid.v3/v5/v6` with a caller-supplied buffer; exceljs only calls `uuid.v4`, so it does not apply.
 
+## Compliance calendar and reminders
+
+Press **C** on the Gateway (or click the 🔔 in the top bar). It lists, for this company:
+
+| Obligation | Standard due date | Switch |
+| --- | --- | --- |
+| GSTR-1 | 11th of next month; quarterly (QRMP) 13th after the quarter | GST (needs a GSTIN) |
+| GSTR-3B and GST payment | 20th of next month; quarterly 22nd or 24th after the quarter, by state | GST |
+| PMT-06 (QRMP) | 25th of the next month, for the first two months of a quarter | GST, quarterly |
+| GSTR-9 | 31 December after the year | GSTR-9 |
+| TDS / TCS payment | 7th of next month; March's by 30 April | TDS |
+| TDS / TCS returns | 31 Jul, 31 Oct, 31 Jan, 31 May | TDS |
+| Advance tax | 15 Jun, 15 Sep, 15 Dec, 15 Mar | Advance tax |
+| Income-tax return | 31 July; 31 October if tax-audited (audit report by 30 September) | Income tax |
+
+Choose which apply under **Which returns apply** (monthly or quarterly GST, TDS, tax audit, how many
+days ahead to remind). For GSTR-3B and PMT-06 it shows the cash GST payable worked out from your books
+(after the legal set-off; for a quarter, net of PMT-06 already paid).
+
+- **Mark done** records the date filed or paid, the ARN, acknowledgement or challan number, the amount
+  paid and a note. **Undo** clears it. Every change is kept in the audit log.
+- **Change due date** when the government extends a date; the calendar then uses the extended date.
+  These are the standard dates in the law; always check gst.gov.in and incometax.gov.in.
+- **Your reminders**: add workings, calculations, adjustments or anything else with a date, once or
+  every month, quarter or year, with how many days ahead to remind.
+
+Overdue and due-soon items show as a count on the bell, in its list, and in **Due soon** on the
+Gateway. **Show desktop pop-ups** (on the calendar) adds operating-system notifications, once a day
+for anything overdue or due within two days. They are shown by this computer only (nothing is sent
+anywhere), and only while Kannaku AI is open in a browser tab. Email, SMS and WhatsApp reminders are
+not built.
+
 ## Keyboard
 
 | Key | Action |

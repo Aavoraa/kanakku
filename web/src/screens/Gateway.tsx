@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { api, c } from '../api';
+import { api, c, type ComplianceAlerts } from '../api';
+import { dueText } from '../notify';
 import { useApp, type Route } from '../state';
 import { useKeys, isTyping } from '../keys';
 import { Kbd } from '../components/ui';
@@ -25,13 +26,16 @@ export const MENU: { key: string; label: string; route: Route; group: string }[]
   { key: 'L', label: 'Ledger statement', route: { screen: 'ledger' }, group: 'Reports' },
   { key: 'S', label: 'Stock Summary', route: { screen: 'stock' }, group: 'Reports' },
   { key: 'G', label: 'GST Summary', route: { screen: 'gst' }, group: 'Reports' },
+  { key: 'C', label: 'Compliance calendar (GST, TDS, income tax, reminders)', route: { screen: 'compliance' }, group: 'Company' },
   { key: 'O', label: 'Settings', route: { screen: 'settings' }, group: 'Company' },
 ];
 
 export function Gateway() {
   const app = useApp();
   const [d, setD] = useState<Dash | null>(null);
+  const [due, setDue] = useState<ComplianceAlerts | null>(null);
   useEffect(() => { void api.get<Dash>(c('/dashboard')).then(setD); }, [app.dataVersion]);
+  useEffect(() => { void api.get<ComplianceAlerts>(c('/compliance/alerts')).then(setDue).catch(() => {}); }, [app.dataVersion]);
 
   const keys: Record<string, (e: KeyboardEvent) => boolean | void> = {};
   for (const m of MENU) keys[m.key] = (e) => { if (isTyping(e)) return false; app.go(m.route); };
@@ -73,6 +77,20 @@ export function Gateway() {
         </nav>
 
         <section className="recent">
+          {due && due.items.length > 0 && (
+            <div className="due-box">
+              <h2>Due soon <button className="link" onClick={() => app.go({ screen: 'compliance' })}>Compliance calendar <Kbd>C</Kbd></button></h2>
+              <ul>
+                {due.items.slice(0, 4).map((i) => (
+                  <li key={i.key} className={i.status === 'OVERDUE' ? 'bad' : ''}>
+                    <strong>{i.title}</strong> <span className="muted">{i.periodLabel}</span>
+                    <span className="due-when">{dueText(i)} · {fmtDate(i.due)}{i.estimateMinor && BigInt(i.estimateMinor) > 0n ? ` · ₹${inr(i.estimateMinor)}` : ''}</span>
+                  </li>
+                ))}
+              </ul>
+              {due.items.length > 4 && <p className="muted small">and {due.items.length - 4} more</p>}
+            </div>
+          )}
           <h2>Recent vouchers</h2>
           {d && d.recent.length === 0 && (
             <div className="empty-state">No entries yet. Press <Kbd>F8</Kbd> to record your first sale, <Kbd>M</Kbd> to add parties and items, or <Kbd>Ctrl+U</Kbd> to upload a bill, bank statement or workings.</div>

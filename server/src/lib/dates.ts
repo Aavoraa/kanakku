@@ -36,14 +36,14 @@ export function fyEnd(iso: string, fyStartMonth = 4): string {
   return d.toISOString().slice(0, 10);
 }
 
-function monthStart(iso: string) { return `${iso.slice(0, 7)}-01`; }
-function monthEnd(iso: string) {
+export function monthStart(iso: string) { return `${iso.slice(0, 7)}-01`; }
+export function monthEnd(iso: string) {
   const d = new Date(`${monthStart(iso)}T00:00:00Z`);
   d.setUTCMonth(d.getUTCMonth() + 1);
   d.setUTCDate(0);
   return d.toISOString().slice(0, 10);
 }
-function shiftMonths(iso: string, n: number) {
+export function shiftMonths(iso: string, n: number) {
   const d = new Date(`${monthStart(iso)}T00:00:00Z`);
   d.setUTCMonth(d.getUTCMonth() + n);
   return d.toISOString().slice(0, 10);
