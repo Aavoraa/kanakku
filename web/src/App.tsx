@@ -17,6 +17,10 @@ import { CompanyForm } from './components/CompanyForm';
 import { AiKeyDialog } from './components/AiKey';
 import { AlertsBell } from './components/Alerts';
 import { Compliance } from './screens/Compliance';
+import { Profile } from './screens/Profile';
+import { PettyCash } from './screens/PettyCash';
+import { Assets } from './screens/Assets';
+import { Upkeep } from './screens/Upkeep';
 
 const KEYBAR: [string, string][] = [
   ['Escape', 'Back'], ['F8', 'Sales'], ['F9', 'Purchase'], ['F5', 'Payment'], ['F6', 'Receipt'], ['F4', 'Contra'], ['F7', 'Journal'],
@@ -43,6 +47,10 @@ function Screen({ route }: { route: Route }) {
     case 'review-doc': return <DocumentScreen params={p as { id: string }} />;
     case 'settings': return <Settings />;
     case 'compliance': return <Compliance />;
+    case 'profile': return <Profile />;
+    case 'petty-cash': return <PettyCash />;
+    case 'assets': return <Assets />;
+    case 'upkeep': return <Upkeep />;
     default: return <Gateway />;
   }
 }
@@ -167,6 +175,7 @@ function UserMenu() {
         <div className="menu-pop right" role="menu">
           <div className="menu-who"><strong>{app.user.name}</strong><small>{app.user.email}</small></div>
           <hr />
+          <button role="menuitem" onClick={() => { setOpen(false); app.go({ screen: 'profile' }); }}>My profile and password</button>
           <button role="menuitem" onClick={() => { setOpen(false); app.go({ screen: 'settings' }); }}>Company settings</button>
           <button role="menuitem" onClick={() => void app.logout()}>Log out</button>
         </div>

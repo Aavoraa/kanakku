@@ -179,6 +179,72 @@ export async function login(db: Db, emailRaw: string, password: string): Promise
   return { id: row.id, email: row.email, name: row.name, phone: row.phone };
 }
 
+// ---------- Own account: profile, password, sessions ----------
+
+/** Checks the signed-in user's current password before a sensitive change, with the same lock-out as login. */
+async function confirmPassword(db: Db, userId: string, password: unknown) {
+  const row = await one<{ email: string; password_hash: string }>(db, `SELECT email, password_hash FROM users WHERE id = $1`, [userId]);
+  checkLock(row.email);
+  if (typeof password !== 'string' || !(await verifyPassword(password, row.password_hash))) {
+    noteFailure(row.email);
+    throw new AppError('BAD_PASSWORD', 403, 'Your current password is not correct.');
+  }
+  failures.delete(row.email);
+  return row;
+}
+
+export interface ProfilePatch { name?: string; phone?: string | null; email?: string; currentPassword?: string }
+
+/** Name and mobile change freely; a new email (the login) needs the current password. */
+export async function updateProfile(db: Db, userId: string, p: ProfilePatch): Promise<User> {
+  const cur = await one<User>(db, `SELECT id, email, name, phone FROM users WHERE id = $1`, [userId]);
+  const name = p.name === undefined ? cur.name : String(p.name).trim();
+  if (!name) throw invalid('Enter your name');
+  const phone = p.phone === undefined ? cur.phone : (p.phone ?? '').trim() || null;
+  if (phone && !/^[+\d][\d\s-]{6,16}$/.test(phone)) throw invalid('Mobile number is not valid');
+  const email = p.email === undefined ? cur.email : String(p.email).trim().toLowerCase();
+  if (!EMAIL_RE.test(email)) throw invalid('Enter a valid email address');
+  if (email !== cur.email) {
+    await confirmPassword(db, userId, p.currentPassword);
+    if (await maybeOne(db, `SELECT 1 FROM users WHERE email = $1 AND id <> $2`, [email, userId])) {
+      throw new AppError('EMAIL_TAKEN', 409, 'Another account already uses this email.');
+    }
+  }
+  return one<User>(db,
+    `UPDATE users SET name = $2, phone = $3, email = $4 WHERE id = $1 RETURNING id, email, name, phone`,
+    [userId, name.slice(0, 120), phone, email]);
+}
+
+/** New password after checking the current one. Every other signed-in browser is signed out; this one stays in. */
+export async function changePassword(db: Db, userId: string, currentPassword: unknown, newPassword: unknown, keepToken: string | null) {
+  await confirmPassword(db, userId, currentPassword);
+  if (typeof newPassword !== 'string' || newPassword.length < 8) throw invalid('The new password must be at least 8 characters');
+  if (newPassword === currentPassword) throw invalid('The new password is the same as the current one');
+  await db.query(`UPDATE users SET password_hash = $2 WHERE id = $1`, [userId, await hashPassword(newPassword)]);
+  return signOutOthers(db, userId, keepToken);
+}
+
+/** Ends every session of this user except the one making the request. Returns how many were ended. */
+export async function signOutOthers(db: Db, userId: string, keepToken: string | null): Promise<{ signedOut: number }> {
+  const r = await db.query(`DELETE FROM user_sessions WHERE user_id = $1 AND token_hash <> $2`, [userId, keepToken ? sha256(keepToken) : '']);
+  return { signedOut: r.affectedRows ?? 0 };
+}
+
+export async function listSessions(db: Db, userId: string, currentToken: string | null) {
+  const current = currentToken ? sha256(currentToken) : '';
+  return (await many<{ token_hash: string; created_at: string; expires_at: string; user_agent: string | null }>(db,
+    `SELECT token_hash, created_at::text, expires_at::text, user_agent FROM user_sessions WHERE user_id = $1 AND expires_at > now() ORDER BY created_at DESC`, [userId]))
+    .map((s) => ({ signedInAt: s.created_at, expiresAt: s.expires_at, browser: describeAgent(s.user_agent), current: s.token_hash === current }));
+}
+
+/** "Chrome on Windows" from a user-agent string, for the list of signed-in browsers. */
+function describeAgent(ua: string | null): string {
+  if (!ua) return 'Unknown browser';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+  const os = /Windows/.test(ua) ? 'Windows' : /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Mac OS X/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : '';
+  return os ? `${browser} on ${os}` : browser;
+}
+
 export function readCookie(header: string | undefined, name: string): string | null {
   if (!header) return null;
   for (const part of header.split(';')) {

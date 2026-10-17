@@ -28,6 +28,8 @@ export interface LedgerInfo {
   taxComponent: string | null;
   taxDirection: string | null;
   taxRatePpm: number | null;
+  /** Switched off in Masters: kept for history, refused for new entries. */
+  active: boolean;
 }
 
 export interface Party {
@@ -57,10 +59,10 @@ export class LedgerContext {
     const rows = await many<{
       id: string; name: string; group_id: string; group_name: string; path: string; nature: LedgerInfo['nature'];
       counterparty_id: string | null; bill_wise: boolean; system_code: string | null;
-      tax_component: string | null; tax_direction: string | null; tax_rate_ppm: number | null;
+      tax_component: string | null; tax_direction: string | null; tax_rate_ppm: number | null; is_active: boolean;
     }>(db,
       `SELECT l.id, l.name, l.group_id, g.name AS group_name, g.path::text AS path, g.nature,
-              l.counterparty_id, l.bill_wise, l.system_code, l.tax_component, l.tax_direction, l.tax_rate_ppm
+              l.counterparty_id, l.bill_wise, l.system_code, l.tax_component, l.tax_direction, l.tax_rate_ppm, l.is_active
          FROM ledgers l JOIN ledger_groups g ON g.id = l.group_id
         WHERE l.company_id = $1`, [companyId]);
     const map = new Map<string, LedgerInfo>();
@@ -68,7 +70,7 @@ export class LedgerContext {
       map.set(r.id, {
         id: r.id, name: r.name, groupId: r.group_id, groupName: r.group_name, path: r.path.split('.'),
         nature: r.nature, counterpartyId: r.counterparty_id, billWise: r.bill_wise, systemCode: r.system_code,
-        taxComponent: r.tax_component, taxDirection: r.tax_direction, taxRatePpm: r.tax_rate_ppm,
+        taxComponent: r.tax_component, taxDirection: r.tax_direction, taxRatePpm: r.tax_rate_ppm, active: r.is_active,
       });
     }
     return new LedgerContext(db, company, map);
@@ -126,7 +128,7 @@ export class LedgerContext {
     const info: LedgerInfo = {
       id: row.id, name, groupId: group.id, groupName: group.name, path: group.path.split('.'), nature: 'LIABILITY',
       counterpartyId: null, billWise: false, systemCode: null, taxComponent: component, taxDirection: direction,
-      taxRatePpm: ratePpm,
+      taxRatePpm: ratePpm, active: true,
     };
     this.ledgers.set(row.id, info);
     return info;

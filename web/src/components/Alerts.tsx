@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, c, type ComplianceAlerts } from '../api';
-import { useApp } from '../state';
+import { useApp, type Screen } from '../state';
 import { fmtDate } from '../format';
 import { dueText, notifyDue } from '../notify';
 
@@ -53,7 +53,7 @@ export function AlertsBell() {
           <div className="menu-who"><strong>Compliance</strong><small>{label}</small></div>
           <hr />
           {data?.items.slice(0, 8).map((i) => (
-            <button key={i.key} role="menuitem" onClick={() => { setOpen(false); app.go({ screen: 'compliance' }); }}>
+            <button key={i.key} role="menuitem" onClick={() => { setOpen(false); app.go({ screen: (i.link ?? 'compliance') as Screen }); }}>
               <span>{i.title} <span className="muted">· {i.periodLabel}</span></span>
               <small className={i.status === 'OVERDUE' ? 'bad' : ''}>{dueText(i)} · {fmtDate(i.due)}</small>
             </button>

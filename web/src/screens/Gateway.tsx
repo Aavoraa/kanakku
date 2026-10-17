@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, c, type ComplianceAlerts } from '../api';
 import { dueText } from '../notify';
-import { useApp, type Route } from '../state';
+import { useApp, type Route, type Screen } from '../state';
 import { useKeys, isTyping } from '../keys';
 import { Kbd } from '../components/ui';
 import { fmtDate, inr, TYPE_LABEL } from '../format';
@@ -17,7 +17,9 @@ export const MENU: { key: string; label: string; route: Route; group: string }[]
   { key: 'V', label: 'Vouchers (enter)', route: { screen: 'voucher', params: { type: 'SALES' } }, group: 'Transactions' },
   { key: 'D', label: 'Day Book', route: { screen: 'daybook' }, group: 'Transactions' },
   { key: 'R', label: 'Documents (bills, statements, workings)', route: { screen: 'review' }, group: 'Transactions' },
+  { key: 'E', label: 'Petty cash', route: { screen: 'petty-cash' }, group: 'Transactions' },
   { key: 'M', label: 'Masters', route: { screen: 'masters' }, group: 'Masters' },
+  { key: 'F', label: 'Assets and upkeep (service, AMC, insurance)', route: { screen: 'assets' }, group: 'Masters' },
   { key: 'T', label: 'Trial Balance', route: { screen: 'tb' }, group: 'Reports' },
   { key: 'P', label: 'Profit & Loss', route: { screen: 'pl' }, group: 'Reports' },
   { key: 'B', label: 'Balance Sheet', route: { screen: 'bs' }, group: 'Reports' },
@@ -27,6 +29,7 @@ export const MENU: { key: string; label: string; route: Route; group: string }[]
   { key: 'S', label: 'Stock Summary', route: { screen: 'stock' }, group: 'Reports' },
   { key: 'G', label: 'GST Summary', route: { screen: 'gst' }, group: 'Reports' },
   { key: 'C', label: 'Compliance calendar (GST, TDS, income tax, reminders)', route: { screen: 'compliance' }, group: 'Company' },
+  { key: 'U', label: 'Upkeep (health check, backups, year closing)', route: { screen: 'upkeep' }, group: 'Company' },
   { key: 'O', label: 'Settings', route: { screen: 'settings' }, group: 'Company' },
 ];
 
@@ -83,7 +86,7 @@ export function Gateway() {
               <ul>
                 {due.items.slice(0, 4).map((i) => (
                   <li key={i.key} className={i.status === 'OVERDUE' ? 'bad' : ''}>
-                    <strong>{i.title}</strong> <span className="muted">{i.periodLabel}</span>
+                    <button className="link due-title" onClick={() => app.go({ screen: (i.link ?? 'compliance') as Screen })}><strong>{i.title}</strong></button> <span className="muted">{i.periodLabel}</span>
                     <span className="due-when">{dueText(i)} · {fmtDate(i.due)}{i.estimateMinor && BigInt(i.estimateMinor) > 0n ? ` · ₹${inr(i.estimateMinor)}` : ''}</span>
                   </li>
                 ))}

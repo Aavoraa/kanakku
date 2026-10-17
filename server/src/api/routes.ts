@@ -25,6 +25,10 @@ import { requireUser } from '../auth/routes';
 import { isAdmin } from '../auth/auth';
 import { aiKeyStatus, removeAiKey, setAiKey } from '../ai/key';
 import { listBackups, writeBackup } from '../db/backup';
+import { renameGroup, updateItem, updateLedger, updateParty } from '../ledger/alter';
+import { countCash, createBox, DENOMINATIONS, listBoxes, pettyCashBook, recordExpense, topUp, updateBox } from '../pettycash/service';
+import { addSchedule, assetDetail, createAsset, listAssets, logUpkeep, removeSchedule, updateAsset } from '../assets/service';
+import { clearOldDocuments, closeYear, healthCheck, oldDocuments, yearClosePreview } from '../upkeep/service';
 
 type Req = FastifyRequest<{ Params: Record<string, string>; Querystring: Record<string, string | undefined>; Body: any }>;
 
@@ -93,12 +97,14 @@ export function registerRoutes(app: FastifyInstance, db: PGlite) {
   app.patch('/api/v1/companies/:cid', async (req: Req) => {
     const c = await company(req);
     const b = body(req);
+    if (b.name !== undefined && (typeof b.name !== 'string' || !b.name.trim())) throw invalid('Enter the business name');
     if (b.lockDate && (typeof b.lockDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(b.lockDate))) throw invalid('Lock date is not a valid date');
     for (const k of ['voiceLimit', 'autoPostLimit']) {
       if (b[k] === undefined) continue;
       b[k] = String(b[k]).replace(/,/g, '').trim();
       if (!/^\d+(\.\d+)?$/.test(b[k])) throw invalid('Enter the limit as an amount in rupees, like 50000');
     }
+    if (b.name !== undefined) await db.query(`UPDATE companies SET name = $2 WHERE id = $1`, [c.id, b.name.trim().slice(0, 120)]);
     if (b.lockDate !== undefined) await db.query(`UPDATE companies SET lock_date = $2 WHERE id = $1`, [c.id, b.lockDate || null]);
     if (b.voiceLimit !== undefined) await db.query(`UPDATE companies SET voice_limit_minor = $2 WHERE id = $1`, [c.id, toMinor(b.voiceLimit)]);
     if (b.roundInvoice !== undefined) await db.query(`UPDATE companies SET round_invoice = $2 WHERE id = $1`, [c.id, Boolean(b.roundInvoice)]);
@@ -124,10 +130,10 @@ export function registerRoutes(app: FastifyInstance, db: PGlite) {
     return many(db,
       `SELECT l.id, l.name, g.name AS "groupName", g.id AS "groupId", g.path::text AS path, g.nature, l.system_code AS "systemCode",
               l.counterparty_id AS "counterpartyId", l.bill_wise AS "billWise", l.tax_component AS "taxComponent",
-              (g.path ~ '*.bank_accounts|cash_in_hand|bank_od.*') AS "isCashBank",
+              (g.path ~ '*.bank_accounts|cash_in_hand|bank_od.*') AS "isCashBank", l.is_active AS "isActive",
               COALESCE((SELECT SUM(e.amount_minor) FROM ledger_entries e WHERE e.ledger_id = l.id), 0)::bigint AS "balanceMinor"
          FROM ledgers l JOIN ledger_groups g ON g.id = l.group_id
-        WHERE l.company_id = $1 AND l.is_active ORDER BY l.name`, [c.id]);
+        WHERE l.company_id = $1 AND ($2 OR l.is_active) ORDER BY l.name`, [c.id, req.query.all === '1']);
   });
   app.post(`${P}/ledgers`, async (req: Req) => createLedger(db, (await company(req)).id, body(req), uid(req)));
   app.post(`${P}/ledgers/:id/opening`, async (req: Req) => {
@@ -140,11 +146,11 @@ export function registerRoutes(app: FastifyInstance, db: PGlite) {
     const c = await company(req);
     return many(db,
       `SELECT cp.id, cp.legal_name AS name, cp.gstin, cp.state_code AS "stateCode", cp.city, cp.phone, cp.credit_days AS "creditDays",
-              cp.status, l.id AS "ledgerId", g.name AS "groupName",
+              cp.status, cp.gst_reg_type AS "regType", l.id AS "ledgerId", g.name AS "groupName",
               CASE WHEN g.path ~ '*.sundry_debtors.*' THEN 'CUSTOMER' WHEN g.path ~ '*.sundry_creditors.*' THEN 'SUPPLIER' ELSE 'OTHER' END AS kind,
               COALESCE((SELECT SUM(e.amount_minor) FROM ledger_entries e WHERE e.ledger_id = l.id), 0)::bigint AS "balanceMinor"
          FROM counterparties cp JOIN ledgers l ON l.counterparty_id = cp.id JOIN ledger_groups g ON g.id = l.group_id
-        WHERE cp.company_id = $1 ORDER BY cp.legal_name`, [c.id]);
+        WHERE cp.company_id = $1 AND ($2 OR cp.status <> 'INACTIVE') ORDER BY cp.legal_name`, [c.id, req.query.all === '1']);
   });
   app.post(`${P}/parties`, async (req: Req) => createParty(db, (await company(req)).id, body(req), uid(req)));
   app.get(`${P}/parties/match`, async (req: Req) => resolveParty(db, (await company(req)).id, { name: req.query.name ?? null, gstin: req.query.gstin ?? null }));
@@ -153,11 +159,17 @@ export function registerRoutes(app: FastifyInstance, db: PGlite) {
     const c = await company(req);
     return many(db,
       `SELECT i.id, i.name, i.hsn_sac AS "hsnSac", i.gst_rate_ppm AS "gstRatePpm", i.valuation, u.symbol AS uom, u.id AS "uomId",
+              i.is_active AS "isActive", i.allow_negative AS "allowNegative",
               COALESCE((SELECT SUM(qty) FROM inventory_entries ie WHERE ie.item_id = i.id), 0)::text AS "qtyOnHand"
-         FROM stock_items i JOIN uoms u ON u.id = i.base_uom_id WHERE i.company_id = $1 ORDER BY i.name`, [c.id]);
+         FROM stock_items i JOIN uoms u ON u.id = i.base_uom_id WHERE i.company_id = $1 AND ($2 OR i.is_active) ORDER BY i.name`, [c.id, req.query.all === '1']);
   });
   app.post(`${P}/items`, async (req: Req) => createItem(db, (await company(req)).id, body(req), uid(req)));
   app.get(`${P}/uoms`, async (req: Req) => many(db, `SELECT id, symbol, uqc, decimals FROM uoms WHERE company_id = $1 ORDER BY symbol`, [(await company(req)).id]));
+  // Altering masters (rename, change details, switch off / on).
+  app.patch(`${P}/ledgers/:id`, async (req: Req) => updateLedger(db, (await company(req)).id, req.params.id, body(req), uid(req)));
+  app.patch(`${P}/parties/:id`, async (req: Req) => updateParty(db, (await company(req)).id, req.params.id, body(req), uid(req)));
+  app.patch(`${P}/items/:id`, async (req: Req) => updateItem(db, (await company(req)).id, req.params.id, body(req), uid(req)));
+  app.patch(`${P}/groups/:id`, async (req: Req) => renameGroup(db, (await company(req)).id, req.params.id, body(req).name, uid(req)));
   app.get(`${P}/godowns`, async (req: Req) => many(db, `SELECT id, name, is_default AS "isDefault" FROM godowns WHERE company_id = $1 ORDER BY name`, [(await company(req)).id]));
 
   // ---------- Vouchers ----------
@@ -237,6 +249,42 @@ export function registerRoutes(app: FastifyInstance, db: PGlite) {
   app.put(`${P}/compliance/records/:key`, async (req: Req) => saveRecord(db, (await company(req)).id, req.params.key, body(req), uid(req)));
   app.post(`${P}/compliance/tasks`, async (req: Req) => createTask(db, (await company(req)).id, body(req), uid(req)));
   app.delete(`${P}/compliance/tasks/:id`, async (req: Req) => { await deleteTask(db, (await company(req)).id, req.params.id, uid(req)); return { ok: true }; });
+
+  /** Posting routes need an Idempotency-Key header so a double click cannot post twice. */
+  const idem = (req: Req) => {
+    const key = req.headers['idempotency-key'];
+    if (typeof key !== 'string' || !key) throw invalid('Idempotency-Key header is required');
+    return key;
+  };
+
+  // ---------- Petty cash (imprest) ----------
+  app.get(`${P}/petty-cash`, async (req: Req) => ({ boxes: await listBoxes(db, (await company(req)).id), denominations: DENOMINATIONS }));
+  app.post(`${P}/petty-cash`, async (req: Req) => createBox(db, (await company(req)).id, body(req), uid(req)));
+  app.patch(`${P}/petty-cash/:id`, async (req: Req) => { await updateBox(db, (await company(req)).id, req.params.id, body(req), uid(req)); return { ok: true }; });
+  app.post(`${P}/petty-cash/:id/expenses`, async (req: Req) => recordExpense(db, (await company(req)).id, req.params.id, body(req), { idempotencyKey: idem(req), userId: uid(req) }));
+  app.post(`${P}/petty-cash/:id/top-up`, async (req: Req) => topUp(db, (await company(req)).id, req.params.id, body(req), { idempotencyKey: idem(req), userId: uid(req) }));
+  app.post(`${P}/petty-cash/:id/counts`, async (req: Req) => countCash(db, (await company(req)).id, req.params.id, body(req), { idempotencyKey: idem(req), userId: uid(req) }));
+  app.get(`${P}/petty-cash/:id/book`, async (req: Req) => {
+    const c = await company(req);
+    const to = date(req.query.to, todayIST());
+    return pettyCashBook(db, c.id, req.params.id, date(req.query.from, `${to.slice(0, 7)}-01`), to);
+  });
+
+  // ---------- Asset register and upkeep ----------
+  app.get(`${P}/assets`, async (req: Req) => listAssets(db, (await company(req)).id, req.query.all === '1'));
+  app.post(`${P}/assets`, async (req: Req) => createAsset(db, (await company(req)).id, body(req), uid(req)));
+  app.get(`${P}/assets/:id`, async (req: Req) => assetDetail(db, (await company(req)).id, req.params.id));
+  app.patch(`${P}/assets/:id`, async (req: Req) => { await updateAsset(db, (await company(req)).id, req.params.id, body(req), uid(req)); return { ok: true }; });
+  app.post(`${P}/assets/:id/schedules`, async (req: Req) => addSchedule(db, (await company(req)).id, req.params.id, body(req), uid(req)));
+  app.delete(`${P}/asset-schedules/:id`, async (req: Req) => { await removeSchedule(db, (await company(req)).id, req.params.id, uid(req)); return { ok: true }; });
+  app.post(`${P}/assets/:id/logs`, async (req: Req) => logUpkeep(db, (await company(req)).id, req.params.id, body(req), { idempotencyKey: idem(req), userId: uid(req) }));
+
+  // ---------- App upkeep: health check, old uploads, closing the year ----------
+  app.get(`${P}/upkeep/health`, async (req: Req) => healthCheck(db, (await company(req)).id, { isAdmin: await isAdmin(db, uid(req)) }));
+  app.get(`${P}/upkeep/old-documents`, async (req: Req) => oldDocuments(db, (await company(req)).id, Number(req.query.days ?? 90) || 90));
+  app.post(`${P}/upkeep/old-documents/delete`, async (req: Req) => clearOldDocuments(db, (await company(req)).id, body(req).ids, uid(req)));
+  app.get(`${P}/upkeep/year-close`, async (req: Req) => yearClosePreview(db, (await company(req)).id, String(req.query.end ?? '')));
+  app.post(`${P}/upkeep/year-close`, async (req: Req) => closeYear(db, (await company(req)).id, String(body(req).end ?? ''), uid(req)));
 
   // ---------- Documents: bills, invoices, bank statements, workings, registers ----------
   const docOptions = (raw: Record<string, unknown>): DocOptions => ({

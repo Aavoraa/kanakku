@@ -149,7 +149,7 @@ export interface NewParty {
   regType?: 'REGULAR' | 'COMPOSITION' | 'UNREGISTERED' | 'CONSUMER' | 'SEZ' | 'OVERSEAS' | null;
 }
 
-const REG_TYPES = new Set(['REGULAR', 'COMPOSITION', 'UNREGISTERED', 'CONSUMER', 'SEZ', 'OVERSEAS']);
+export const REG_TYPES = new Set(['REGULAR', 'COMPOSITION', 'UNREGISTERED', 'CONSUMER', 'SEZ', 'OVERSEAS']);
 
 export async function createParty(db: PGlite, companyId: string, p: NewParty, userId: string, channel = 'MANUAL') {
   const name = p.name.trim();

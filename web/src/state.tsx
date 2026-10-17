@@ -5,7 +5,7 @@ import { CompanyForm } from './components/CompanyForm';
 
 export type Screen =
   | 'gateway' | 'voucher' | 'daybook' | 'voucher-view' | 'tb' | 'pl' | 'bs' | 'ageing' | 'ledger'
-  | 'stock' | 'gst' | 'masters' | 'review' | 'review-doc' | 'settings' | 'compliance';
+  | 'stock' | 'gst' | 'masters' | 'review' | 'review-doc' | 'settings' | 'compliance' | 'profile' | 'petty-cash' | 'assets' | 'upkeep';
 
 export interface Route { screen: Screen; params?: Record<string, any> }
 
@@ -20,6 +20,8 @@ interface Masters {
 interface AppState {
   status: Status;
   user: User;
+  /** After the profile is saved: show the new name and email everywhere. */
+  setUser: (u: User) => void;
   company: Company;
   companies: Company[];
   switchCompany: (id: string) => void;
@@ -136,7 +138,7 @@ export function AppProvider({ children }: { children: (toasts: { id: number; msg
 
   const company = companies.find((x) => x.id === companyId) ?? null;
   const value = useMemo<AppState | null>(() => (status && user && company ? {
-    status, user, company, companies,
+    status, user, setUser, company, companies,
     switchCompany: (id: string) => { void reloadCompanies(id); },
     reloadCompanies, logout,
     masters, refreshMasters, refreshCompany,

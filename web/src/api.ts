@@ -49,9 +49,9 @@ export const c = (path: string) => `/api/v1/companies/${companyId}${path}`;
 export interface Status { app: string; aiEnabled: boolean; model: string; today: string; states: Record<string, string>; hasUsers: boolean; unclaimed: string[] }
 export interface User { id: string; email: string; name: string; phone: string | null }
 export interface Company { id: string; name: string; gstin: string | null; stateCode: string; booksFrom: string; lockDate: string | null; fyStartMonth: number; voiceLimitMinor: string; roundInvoice: boolean; role: string; autoPost?: boolean; autoPostLimitMinor?: string }
-export interface Ledger { id: string; name: string; groupName: string; groupId: string; path: string; nature: string; systemCode: string | null; counterpartyId: string | null; billWise: boolean; taxComponent: string | null; isCashBank: boolean; balanceMinor: string }
-export interface Party { id: string; name: string; gstin: string | null; stateCode: string | null; city: string | null; phone: string | null; creditDays: number | null; status: string; ledgerId: string; groupName: string; kind: 'CUSTOMER' | 'SUPPLIER' | 'OTHER'; balanceMinor: string }
-export interface Item { id: string; name: string; hsnSac: string | null; gstRatePpm: number | null; valuation: string; uom: string; uomId: string; qtyOnHand: string }
+export interface Ledger { id: string; name: string; groupName: string; groupId: string; path: string; nature: string; systemCode: string | null; counterpartyId: string | null; billWise: boolean; taxComponent: string | null; isCashBank: boolean; balanceMinor: string; isActive?: boolean }
+export interface Party { id: string; name: string; gstin: string | null; stateCode: string | null; city: string | null; phone: string | null; creditDays: number | null; status: string; ledgerId: string; groupName: string; kind: 'CUSTOMER' | 'SUPPLIER' | 'OTHER'; balanceMinor: string; regType?: string }
+export interface Item { id: string; name: string; hsnSac: string | null; gstRatePpm: number | null; valuation: string; uom: string; uomId: string; qtyOnHand: string; isActive?: boolean; allowNegative?: boolean }
 export interface Group { id: string; parentId: string | null; name: string; nature: string; systemCode: string | null; path: string }
 export interface Uom { id: string; symbol: string; uqc: string }
 
@@ -96,7 +96,7 @@ export interface ComplianceSettings {
 }
 export type ComplianceStatus = 'DONE' | 'OVERDUE' | 'DUE_SOON' | 'UPCOMING';
 export interface ComplianceItem {
-  key: string; kind: string; category: 'GST' | 'TDS' | 'INCOME_TAX' | 'TASK'; title: string; periodLabel: string; periodFrom: string; periodTo: string;
+  key: string; kind: string; category: 'GST' | 'TDS' | 'INCOME_TAX' | 'TASK' | 'ASSET' | 'CASH'; title: string; link?: string; periodLabel: string; periodFrom: string; periodTo: string;
   dueDate: string; due: string; extended: boolean; status: ComplianceStatus; daysLeft: number; remindDays: number;
   estimateMinor: string | null; taskId?: string; taskCategory?: string; notes?: string | null;
   record: { doneOn: string | null; reference: string | null; amountMinor: string | null; notes: string | null } | null;

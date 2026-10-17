@@ -113,3 +113,54 @@ describe('sign up and log in', () => {
     expect(locked.statusCode).toBe(429);
   });
 });
+
+describe('own account: profile, password, sessions', () => {
+  const me = { name: 'Venkat', email: 'venkat@example.com', password: 'first-pass-1', company: { name: 'Venkat Traders', stateCode: '33', booksFrom: '2026-04-01' } };
+  const patch = (url: string, payload: unknown, cookie: string) => app.inject({ method: 'PATCH', url, payload: payload as object, headers: { cookie } });
+  let browserA = '';
+  let browserB = '';
+
+  beforeAll(async () => {
+    browserA = cookieOf(await post('/api/v1/auth/signup', me));
+    browserB = cookieOf(await post('/api/v1/auth/login', { email: me.email, password: me.password }));
+  });
+
+  it('needs a login', async () => {
+    expect((await app.inject({ method: 'PATCH', url: '/api/v1/account/profile', payload: { name: 'X' } })).statusCode).toBe(401);
+    expect((await post('/api/v1/account/password', { currentPassword: 'x', newPassword: 'yyyyyyyy' })).statusCode).toBe(401);
+  });
+
+  it('changes name and mobile without the password, but the email only with it', async () => {
+    const r = await patch('/api/v1/account/profile', { name: '  Venkat R ', phone: '98400 55555' }, browserA);
+    expect(r.json().user).toMatchObject({ name: 'Venkat R', phone: '98400 55555', email: me.email });
+    expect((await patch('/api/v1/account/profile', { email: 'new@example.com' }, browserA)).statusCode).toBe(403);
+    expect((await patch('/api/v1/account/profile', { email: 'senthil@example.com', currentPassword: me.password }, browserA)).statusCode).toBe(409);
+    expect((await patch('/api/v1/account/profile', { name: '' }, browserA)).json().message).toMatch(/your name/);
+    const ok = await patch('/api/v1/account/profile', { email: 'Venkat.New@Example.com', currentPassword: me.password }, browserA);
+    expect(ok.json().user.email).toBe('venkat.new@example.com');
+    expect((await get('/api/v1/auth/me', browserA)).json().user.email).toBe('venkat.new@example.com');
+  });
+
+  it('lists signed-in browsers', async () => {
+    const list = (await get('/api/v1/account/sessions', browserA)).json() as { current: boolean }[];
+    expect(list.length).toBe(2);
+    expect(list.filter((s) => s.current)).toHaveLength(1);
+  });
+
+  it('changes the password with the current one, and signs out the other browser', async () => {
+    expect((await post('/api/v1/account/password', { currentPassword: 'wrong-one', newPassword: 'second-pass-2' }, browserA)).statusCode).toBe(403);
+    expect((await post('/api/v1/account/password', { currentPassword: me.password, newPassword: 'short' }, browserA)).statusCode).toBe(422);
+    const r = await post('/api/v1/account/password', { currentPassword: me.password, newPassword: 'second-pass-2' }, browserA);
+    expect(r.json()).toEqual({ signedOut: 1 });
+    expect((await get('/api/v1/auth/me', browserA)).statusCode).toBe(200);   // this browser stays signed in
+    expect((await get('/api/v1/auth/me', browserB)).statusCode).toBe(401);   // the other one is signed out
+    expect((await post('/api/v1/auth/login', { email: 'venkat.new@example.com', password: me.password })).statusCode).toBe(401);
+    expect((await post('/api/v1/auth/login', { email: 'venkat.new@example.com', password: 'second-pass-2' })).statusCode).toBe(200);
+  });
+
+  it('signs out everywhere else on request', async () => {
+    const r = await post('/api/v1/account/sessions/sign-out-others', {}, browserA);
+    expect(r.json().signedOut).toBe(1);   // the login in the previous test
+    expect((await get('/api/v1/auth/me', browserA)).statusCode).toBe(200);
+  });
+});

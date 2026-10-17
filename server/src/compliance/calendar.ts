@@ -7,8 +7,8 @@ import { addDays, monthEnd, monthStart, shiftMonths } from '../lib/dates';
  * date can be overridden per company (compliance_records.due_date), and the screen says to check the portals.
  * The statutory year is always April to March, whatever the company's books use.
  */
-export type Kind = 'GSTR1' | 'GSTR3B' | 'PMT06' | 'GSTR9' | 'TDS_PAY' | 'TDS_RETURN' | 'ADV_TAX' | 'ITR' | 'TAX_AUDIT' | 'TASK';
-export type Category = 'GST' | 'TDS' | 'INCOME_TAX' | 'TASK';
+export type Kind = 'GSTR1' | 'GSTR3B' | 'PMT06' | 'GSTR9' | 'TDS_PAY' | 'TDS_RETURN' | 'ADV_TAX' | 'ITR' | 'TAX_AUDIT' | 'TASK' | 'ASSET' | 'PETTY_LOW';
+export type Category = 'GST' | 'TDS' | 'INCOME_TAX' | 'TASK' | 'ASSET' | 'CASH';
 
 export interface ComplianceSettings {
   /** GST returns (only when the company has a GSTIN). */
@@ -61,6 +61,8 @@ export interface Due {
   taskId?: string;
   taskCategory?: string;
   notes?: string | null;
+  /** Screen to open from the bell instead of the calendar (petty cash, asset register). */
+  link?: string;
 }
 
 /**
@@ -141,7 +143,7 @@ export function statutoryDues(s: ComplianceSettings, co: CompanyFacts, from: str
   return out.sort((a, b) => a.dueDate.localeCompare(b.dueDate) || a.key.localeCompare(b.key));
 }
 
-export type Repeat = 'NONE' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+export type Repeat = 'NONE' | 'MONTHLY' | 'QUARTERLY' | 'HALF_YEARLY' | 'YEARLY';
 export interface TaskRow { id: string; title: string; category: string; first_due: string; repeat: Repeat; remind_days: number; notes: string | null }
 
 /** `iso` moved by n months, keeping the day where the month has it (31 Jan + 1 = 28/29 Feb). */
@@ -151,10 +153,14 @@ export function addMonthsKeepDay(iso: string, n: number): string {
   return ymd(year(target), month(target), Math.min(Number(iso.slice(8, 10)), last));
 }
 
-const STEP: Record<Repeat, number> = { NONE: 0, MONTHLY: 1, QUARTERLY: 3, YEARLY: 12 };
+const STEP: Record<Repeat, number> = { NONE: 0, MONTHLY: 1, QUARTERLY: 3, HALF_YEARLY: 6, YEARLY: 12 };
+const EVERY: Record<Repeat, string> = { NONE: 'One-off', MONTHLY: 'monthly', QUARTERLY: 'quarterly', HALF_YEARLY: 'half-yearly', YEARLY: 'yearly' };
 
-/** Each occurrence of the company's own reminders between `from` and `to`. */
-export function taskDues(tasks: TaskRow[], from: string, to: string): Due[] {
+/**
+ * Each occurrence of repeating reminders between `from` and `to`: the company's own tasks, and (with
+ * kind ASSET) asset service, AMC and insurance dates.
+ */
+export function taskDues(tasks: TaskRow[], from: string, to: string, as: { kind: 'TASK' | 'ASSET'; link?: string } = { kind: 'TASK' }): Due[] {
   const out: Due[] = [];
   for (const t of tasks) {
     const step = STEP[t.repeat];
@@ -163,8 +169,9 @@ export function taskDues(tasks: TaskRow[], from: string, to: string): Due[] {
       if (due > to) break;
       if (due >= from) {
         out.push({
-          key: `TASK:${t.id}:${due}`, kind: 'TASK', category: 'TASK', title: t.title, periodLabel: t.repeat === 'NONE' ? 'One-off' : t.repeat.toLowerCase(),
+          key: `${as.kind}:${t.id}:${due}`, kind: as.kind, category: as.kind, title: t.title, periodLabel: EVERY[t.repeat],
           periodFrom: due, periodTo: due, dueDate: due, remindDays: t.remind_days, taskId: t.id, taskCategory: t.category, notes: t.notes,
+          ...(as.link ? { link: as.link } : {}),
         });
       }
       if (!step) break;

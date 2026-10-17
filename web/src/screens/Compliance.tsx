@@ -9,7 +9,7 @@ interface View { from: string; to: string; today: string; settings: ComplianceSe
 type Err = { message: string; details?: unknown } | null;
 const asErr = (e: unknown): Err => (e instanceof ApiError ? { message: e.message, details: e.details } : { message: String(e) });
 
-const CATEGORY_LABEL: Record<string, string> = { GST: 'GST', TDS: 'TDS', INCOME_TAX: 'Income tax', TASK: 'Reminder' };
+const CATEGORY_LABEL: Record<string, string> = { GST: 'GST', TDS: 'TDS', INCOME_TAX: 'Income tax', TASK: 'Reminder', ASSET: 'Asset upkeep', CASH: 'Petty cash' };
 const TASK_CATEGORIES: [string, string][] = [
   ['WORKING', 'Working'], ['CALCULATION', 'Calculation'], ['ADJUSTMENT', 'Adjustment'], ['FILING', 'Filing'], ['PAYMENT', 'Payment'], ['OTHER', 'Other'],
 ];
@@ -88,6 +88,7 @@ function ItemList({ items, onChanged }: { items: ComplianceItem[]; onChanged: ()
 }
 
 function ItemRow({ item: i, onChanged }: { item: ComplianceItem; onChanged: () => Promise<void> }) {
+  const app = useApp();
   const [mode, setMode] = useState<null | 'done' | 'due'>(null);
   const [err, setErr] = useState<Err>(null);
   const [busy, setBusy] = useState(false);
@@ -101,7 +102,7 @@ function ItemRow({ item: i, onChanged }: { item: ComplianceItem; onChanged: () =
     <>
       <tr className={`cmp-${i.status.toLowerCase()}`}>
         <td className="nowrap">{fmtDate(i.due)}{i.extended && <span className="tag" title={`Statutory date ${fmtDate(i.dueDate)}`}>extended</span>}</td>
-        <td>{i.title}<span className="tag">{i.category === 'TASK' ? (i.taskCategory ?? 'Reminder').toLowerCase() : CATEGORY_LABEL[i.category]}</span>
+        <td>{i.title}<span className="tag">{i.category === 'TASK' ? (i.taskCategory ?? 'Reminder').toLowerCase() : CATEGORY_LABEL[i.category]}</span>{i.kind === 'ASSET' && <button className="link small" onClick={() => app.go({ screen: 'assets' })}>asset</button>}
           {i.record?.reference && <div className="muted small">Ref {i.record.reference}</div>}
           {(i.record?.notes || i.notes) && <div className="muted small">{i.record?.notes ?? i.notes}</div>}</td>
         <td className="nowrap">{i.periodLabel}</td>

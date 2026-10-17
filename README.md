@@ -136,6 +136,53 @@ for anything overdue or due within two days. They are shown by this computer onl
 anywhere), and only while Kannaku AI is open in a browser tab. Email, SMS and WhatsApp reminders are
 not built.
 
+## Petty cash (key E)
+
+Imprest petty cash: a fixed float kept by a custodian, in its own ledger under Cash-in-Hand.
+
+- **Set up** the box with its float, a limit per payment and (optionally) hand over the float from the bank.
+- **Pay an expense**: date, expense head, the bill total, GST if the bill has it (posted as a purchase so the
+  input credit is claimed), paid to, bill number. Payments above the limit ask for confirmation, and cash
+  payments over ₹10,000 warn about income-tax s.40A(3). A payment the box cannot cover on that date (or any
+  later one) is refused.
+- **Top up** brings the box back to its float from the bank or main cash (a Contra). The bell asks for a
+  top-up when the cash falls below a quarter of the float.
+- **Count cash** note by note (₹2000 down to ₹1, plus loose coins) against the books; a shortage or excess
+  can be posted to "Petty Cash Short / Excess".
+- The **petty cash book** shows every movement with a running balance, spending by head and past counts.
+
+## Altering masters
+
+In Masters, **Alter** on any party, ledger, item or own group changes its name or details; the new name
+shows on every voucher already posted (vouchers refer to them by id, so the hash chain is unaffected).
+
+- Parties: name, customer/supplier, GSTIN (the state follows it), GST registration, city, phone, credit days.
+- Ledgers: name and group (standard ledgers keep their group; GST ledgers are not changed by hand).
+- Items: name, HSN, GST rate, negative-stock permission; unit and valuation only before the first movement.
+- **Switch off** hides a ledger, party or item from new entries and keeps its history; it is refused while
+  it still has a balance or stock. **Show switched off** in Masters lists them to switch back on.
+
+Every change is kept in the audit log with before and after values.
+
+## Assets and upkeep (key F)
+
+An asset register (name, category, location, serial number, purchase date and cost, fixed-asset ledger)
+with upkeep reminders: service, AMC, insurance, warranty, licence or inspection dates, once or repeating
+monthly to yearly. They appear in the compliance calendar and the bell. **Log repair / service** records
+what was done and by whom, can post the cost as an expense (GST included) from cash, bank or petty cash, and
+ticks off the reminder it completes. Retiring an asset stops its reminders.
+
+## Upkeep (key U)
+
+- **Health check**: the voucher hash chain, debits equal credits, cash or petty cash going below zero on any
+  day, stock going negative, documents stuck being read, parties with neither GSTIN nor state, sold items
+  without HSN, a finished year still open, and (for the administrator) backup age.
+- **Backups** (the same as in Settings).
+- **Old uploads**: deletes rejected or unreadable uploads older than 90 days that left nothing in the books.
+- **Close a financial year**: once nothing from the year waits in Documents, it locks the year (the lock
+  date in Settings). Profit and closing stock carry forward by themselves. Returns not marked done in the
+  compliance calendar are listed as a warning.
+
 ## Keyboard
 
 | Key | Action |
@@ -152,7 +199,7 @@ not built.
 | Ctrl+Space (hold) | Talk (Chrome / Edge speech recognition; English/Hinglish or Tamil) |
 | Alt+A / Alt+X | Alter / reverse the open voucher |
 | Esc | Back |
-| Gateway letters | D Day Book · T Trial Balance · P P&L · B Balance Sheet · A/Y Ageing · L Ledger · S Stock · G GST · M Masters · R Documents |
+| Gateway letters | D Day Book · T Trial Balance · P P&L · B Balance Sheet · A/Y Ageing · L Ledger · S Stock · G GST · M Masters · R Documents · E Petty cash · F Assets · C Compliance · U Upkeep · O Settings |
 
 ## How it is built
 

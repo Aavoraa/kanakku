@@ -5,6 +5,9 @@ import { addDays, daysBetween, todayIST } from '../lib/dates';
 import { toMinor } from '../lib/money';
 import { audit } from '../ledger/post';
 import { gstSummary } from '../reports/gst';
+import { formatINR } from '../lib/money';
+import { assetScheduleRows } from '../assets/service';
+import { lowPettyCash } from '../pettycash/service';
 import { parseSettings, remindFrom, statutoryDues, taskDues, type ComplianceSettings, type Due, type Repeat, type TaskRow } from './calendar';
 
 export type Status = 'DONE' | 'OVERDUE' | 'DUE_SOON' | 'UPCOMING';
@@ -24,7 +27,7 @@ interface RecordRow { key: string; done_on: string | null; reference: string | n
 interface CompanyRow { state_code: string; gstin: string | null; books_from: string; compliance: unknown }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const KEY_RE = /^(GSTR1|GSTR3B|PMT06|GSTR9|TDS_PAY|TDS_RETURN|ADV_TAX|ITR|TAX_AUDIT|TASK):[A-Za-z0-9:-]{5,80}$/;
+const KEY_RE = /^(GSTR1|GSTR3B|PMT06|GSTR9|TDS_PAY|TDS_RETURN|ADV_TAX|ITR|TAX_AUDIT|TASK|ASSET):[A-Za-z0-9:-]{5,80}$/;
 
 async function company(db: Db, companyId: string) {
   const c = await one<CompanyRow>(db, `SELECT state_code, gstin, books_from::text, compliance FROM companies WHERE id = $1`, [companyId]);
@@ -39,7 +42,11 @@ async function activeTasks(db: Db, companyId: string) {
 /** Every obligation and reminder falling due between `from` and `to`, with its filing record and status. */
 export async function complianceItems(db: Db, companyId: string, from: string, to: string, today = todayIST()): Promise<Item[]> {
   const { settings, facts } = await company(db, companyId);
-  const dues = [...statutoryDues(settings, facts, from, to), ...taskDues(await activeTasks(db, companyId), from, to)];
+  const dues = [
+    ...statutoryDues(settings, facts, from, to),
+    ...taskDues(await activeTasks(db, companyId), from, to),
+    ...taskDues(await assetScheduleRows(db, companyId), from, to, { kind: 'ASSET', link: 'assets' }),
+  ];
   if (!dues.length) return [];
   const records = new Map((await many<RecordRow>(db,
     `SELECT key, done_on::text, reference, amount_minor, notes, due_date::text FROM compliance_records WHERE company_id = $1 AND key = ANY($2::text[])`,
@@ -73,8 +80,16 @@ export async function complianceItems(db: Db, companyId: string, from: string, t
 /** What needs attention now: overdue, and due within each item's reminder window. Oldest first. */
 export async function complianceAlerts(db: Db, companyId: string, today = todayIST()) {
   // Back far enough to keep nagging about anything left undone in the last year and a bit; ahead past the longest reminder window.
-  const items = await complianceItems(db, companyId, addDays(today, -400), addDays(today, 61), today);
+  const items = await complianceItems(db, companyId, addDays(today, -400), addDays(today, 91), today);
   const alerts = items.filter((i) => i.status === 'OVERDUE' || i.status === 'DUE_SOON');
+  // Petty cash boxes below a quarter of their float need a top-up.
+  for (const b of await lowPettyCash(db, companyId)) {
+    alerts.push({
+      key: `PETTY:${b.id}`, kind: 'PETTY_LOW', category: 'CASH', title: `Top up ${b.name}: ₹${formatINR(b.balanceMinor)} left of ₹${formatINR(b.floatMinor)}`,
+      periodLabel: b.custodian ?? 'petty cash', periodFrom: today, periodTo: today, dueDate: today, due: today, remindDays: 0, extended: false,
+      status: 'DUE_SOON', daysLeft: 0, estimateMinor: b.topUpMinor, record: null, link: 'petty-cash',
+    });
+  }
   return { today, overdue: alerts.filter((a) => a.status === 'OVERDUE').length, dueSoon: alerts.filter((a) => a.status === 'DUE_SOON').length, items: alerts };
 }
 

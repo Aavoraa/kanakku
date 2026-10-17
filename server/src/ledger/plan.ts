@@ -62,9 +62,16 @@ interface StockItemRow {
   sales_ledger_id: string | null;
   purchase_ledger_id: string | null;
   allow_negative: boolean;
+  is_active: boolean;
 }
 
 const fail = (code: string, message: string) => new AppError(code, 422, message);
+
+/** Ledgers switched off in Masters keep their history but take no new entries. */
+function usable(l: LedgerInfo): LedgerInfo {
+  if (!l.active) throw fail('LEDGER_INACTIVE', `${l.name} is switched off. Switch it on again in Masters to use it.`);
+  return l;
+}
 
 export async function buildPlan(ctx: LedgerContext, input: VoucherInput): Promise<Plan> {
   switch (input.voucherType) {
@@ -80,11 +87,12 @@ async function loadItems(ctx: LedgerContext, items: ItemLine[]) {
   const ids = [...new Set(items.map((i) => i.itemId).filter((x): x is string => Boolean(x)))];
   const rows = ids.length
     ? await many<StockItemRow>(ctx.db,
-        `SELECT id, name, sales_ledger_id, purchase_ledger_id, allow_negative
+        `SELECT id, name, sales_ledger_id, purchase_ledger_id, allow_negative, is_active
            FROM stock_items WHERE company_id = $1 AND id = ANY($2::uuid[])`, [ctx.company.id, ids])
     : [];
   const map = new Map(rows.map((r) => [r.id, r]));
   for (const id of ids) if (!map.has(id)) throw fail('UNKNOWN_ITEM', `Stock item ${id} does not exist`);
+  for (const r of rows) if (!r.is_active) throw fail('ITEM_INACTIVE', `${r.name} is switched off. Switch it on again in Masters to use it.`);
   const godown = await maybeOne<{ id: string }>(ctx.db,
     `SELECT id FROM godowns WHERE company_id = $1 ORDER BY is_default DESC, name LIMIT 1`, [ctx.company.id]);
   return { map, defaultGodown: godown?.id ?? null };
@@ -96,10 +104,10 @@ function settlementLedger(ctx: LedgerContext, input: VoucherInput, party: Party 
   if (input.paymentMode === 'BANK') {
     if (!input.bankLedgerId) throw fail('BANK_REQUIRED', 'Choose the bank account');
     if (!ctx.isCashBank(input.bankLedgerId)) throw fail('NOT_A_BANK', 'The selected ledger is not a bank account');
-    return ctx.ledger(input.bankLedgerId);
+    return usable(ctx.ledger(input.bankLedgerId));
   }
   if (!party) throw fail('PARTY_REQUIRED', 'A credit voucher needs a party');
-  return ctx.partyLedger(party.id);
+  return usable(ctx.partyLedger(party.id));
 }
 
 async function tradingPlan(
@@ -171,7 +179,7 @@ async function tradingPlan(
     const ledgerId = item.ledgerId
       ?? (sales ? stockItem?.sales_ledger_id : stockItem?.purchase_ledger_id)
       ?? ctx.systemLedger(sales ? 'SALES' : 'PURCHASE').id;
-    const ledger = ctx.ledger(ledgerId);
+    const ledger = usable(ctx.ledger(ledgerId));
     if (ledger.taxComponent) throw fail('BAD_ITEM_LEDGER', `Line ${lineNo}: ${ledger.name} is a tax ledger`);
     const cost = gst.taxableFor(lineNo) + (ineligibleTaxByLine.get(lineNo) ?? 0n);
     entries.push({ ledgerId, amountMinor: goodsSign * cost });
@@ -256,7 +264,7 @@ async function accountingPlan(ctx: LedgerContext, input: VoucherInput): Promise<
   const entries: PlanEntry[] = [];
 
   for (const [idx, e] of input.entries.entries()) {
-    const ledger = ctx.ledger(e.ledgerId);
+    const ledger = usable(ctx.ledger(e.ledgerId));
     const amount = toMinor(e.amount);
     if (amount <= 0n) throw fail('BAD_AMOUNT', `Line ${idx + 1}: amount must be positive`);
     const signed = e.side === 'DR' ? amount : -amount;
