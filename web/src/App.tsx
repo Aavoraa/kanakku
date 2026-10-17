@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AppProvider, useApp, type Route } from './state';
-import { dispatchKey, useGlobalKeys } from './keys';
+import { dispatchKey, pressKey, useGlobalKeys } from './keys';
 import { Kbd } from './components/ui';
 import { Palette } from './components/Palette';
 import { VoicePanel } from './components/Voice';
@@ -18,7 +18,12 @@ import { AiKeyDialog } from './components/AiKey';
 import { AlertsBell } from './components/Alerts';
 import { Compliance } from './screens/Compliance';
 
-const VOUCHER_KEYS: Record<string, string> = { F4: 'CONTRA', F5: 'PAYMENT', F6: 'RECEIPT', F7: 'JOURNAL', F8: 'SALES', F9: 'PURCHASE', 'Alt+F6': 'CREDIT_NOTE', 'Alt+F5': 'DEBIT_NOTE' };
+const KEYBAR: [string, string][] = [
+  ['Escape', 'Back'], ['F8', 'Sales'], ['F9', 'Purchase'], ['F5', 'Payment'], ['F6', 'Receipt'], ['F4', 'Contra'], ['F7', 'Journal'],
+  ['Ctrl+U', 'Upload documents'], ['Alt+H', 'Home'],
+];
+
+const VOUCHER_KEYS: Record<string, string> ={ F4: 'CONTRA', F5: 'PAYMENT', F6: 'RECEIPT', F7: 'JOURNAL', F8: 'SALES', F9: 'PURCHASE', 'Alt+F6': 'CREDIT_NOTE', 'Alt+F5': 'DEBIT_NOTE' };
 
 function Screen({ route }: { route: Route }) {
   const p = route.params ?? {};
@@ -86,10 +91,13 @@ function Shell({ toasts }: { toasts: { id: number; msg: string; kind: string }[]
         <Screen route={route} />
       </main>
 
+      {/* Each shortcut can also be clicked; a click does what the key does on the current screen. */}
       <footer className="keybar" aria-label="Keyboard shortcuts">
-        {app.stackDepth > 1 && <span><Kbd>Esc</Kbd> Back</span>}
-        <span><Kbd>F8</Kbd> Sales</span><span><Kbd>F9</Kbd> Purchase</span><span><Kbd>F5</Kbd> Payment</span><span><Kbd>F6</Kbd> Receipt</span>
-        <span><Kbd>F4</Kbd> Contra</span><span><Kbd>F7</Kbd> Journal</span><span><Kbd>Ctrl+U</Kbd> Upload documents</span><span><Kbd>Alt+H</Kbd> Home</span>
+        {(app.stackDepth > 1 ? KEYBAR : KEYBAR.filter(([k]) => k !== 'Escape')).map(([k, label]) => (
+          <button key={k} type="button" onClick={() => pressKey(k)} title={`${label} (${k === 'Escape' ? 'Esc' : k})`}>
+            <Kbd>{k === 'Escape' ? 'Esc' : k}</Kbd> {label}
+          </button>
+        ))}
       </footer>
 
       {palette && <Palette onClose={() => setPalette(false)} />}

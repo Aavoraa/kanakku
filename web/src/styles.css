@@ -57,6 +57,8 @@ kbd { display: inline-block; padding: 0 0.35em; border: 1px solid var(--line); b
 .ai-chip.off { color: var(--muted); }
 .content { overflow: auto; padding: 1rem 1.25rem 2rem; }
 .keybar { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; padding: 0.35rem 1rem; background: var(--surface); border-top: 1px solid var(--line); font-size: 0.8rem; color: var(--muted); }
+.keybar button { border: 0; background: transparent; color: inherit; font: inherit; padding: 0.1rem 0.35rem; border-radius: 4px; }
+.keybar button:hover, .keybar button:focus-visible { background: var(--accent-soft); color: var(--text); }
 
 button { cursor: pointer; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 0.35rem 0.75rem; }
 button:hover:not(:disabled) { border-color: var(--accent); }

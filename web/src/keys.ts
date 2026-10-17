@@ -33,6 +33,18 @@ export function dispatchKey(e: KeyboardEvent): boolean {
   return false;
 }
 
+/**
+ * Acts as if `combo` ("F8", "Ctrl+U", "Alt+H") had been pressed, so a click on a shortcut in the key bar does
+ * exactly what the key does on the current screen (F8 on a voucher switches it to Sales, Esc asks before discarding).
+ */
+export function pressKey(combo: string): boolean {
+  const parts = combo.split('+');
+  const key = parts.pop()!;
+  return dispatchKey(new KeyboardEvent('keydown', {
+    key, ctrlKey: parts.includes('Ctrl'), altKey: parts.includes('Alt'), shiftKey: parts.includes('Shift'), cancelable: true,
+  }));
+}
+
 export function useGlobalKeys(map: KeyMap) {
   const ref = useRef(map);
   ref.current = map;
