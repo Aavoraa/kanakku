@@ -144,7 +144,8 @@ describe('bank statement (CSV, no AI)', () => {
     expect(by(3).payload.entries[1]).toMatchObject({ side: 'CR', amount: '25000.00', billRef: 'Opening' });
     expect(by(4)).toMatchObject({ status: 'READY', payload: { voucherType: 'CONTRA' }, suggestion: { counterName: 'Cash' } });
     expect(by(5)).toMatchObject({ status: 'READY', suggestion: { how: 'rule', counterName: 'Bank Charges' } });  // ledger created on the fly
-    expect(by(7).payload.entries[1]).toMatchObject({ billRef: '4' });
+    // The sample's invoice 4, numbered by financial year (SI/26-27/0004).
+    expect(by(7).payload.entries[1]).toMatchObject({ billRef: expect.stringMatching(/^SI\/\d{2}-\d{2}\/0004$/) });
     expect(by(8)).toMatchObject({ status: 'NEEDS_INPUT', payload: null });
     expect(by(10)).toMatchObject({ status: 'READY', suggestion: { counterName: 'Bank Interest' } });
   });

@@ -3,6 +3,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { config } from './config';
 import { DatabaseInUseError, openDb } from './db/client';
 import { scheduleBackups } from './db/backup';
+import { scheduleDigests } from './notify/service';
 import { seedDemo } from './db/demo';
 import { buildApp } from './app';
 import { resumePending } from './ai/documents';
@@ -39,6 +40,7 @@ if (companies.rows[0].n === 0n && process.env.LEDGERAI_DEMO === '1') {
 const app = await buildApp(db, { serveWeb: true });
 await resumePending(db);
 scheduleBackups(db, config.backupDir);
+scheduleDigests(db);
 await app.listen({ port: config.port, host: '127.0.0.1' });
 console.log(`Kannaku AI on http://127.0.0.1:${config.port}  (AI ${config.aiEnabled ? `on, model ${config.model}` : 'off: click "AI off" in the app to add an API key'})`);
 

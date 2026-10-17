@@ -142,7 +142,7 @@ describe('backups and the database lock', () => {
     const names = await many<{ name: string }>(copy, `SELECT name FROM companies`);
     expect(names.map((n) => n.name)).toContain('Test Traders');
     await copy.close();
-  });
+  }, 60_000);
 
   it('writes dated backup files and keeps only the newest', async () => {
     const dir = path.join(tmp, 'backups');

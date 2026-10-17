@@ -323,7 +323,7 @@ async function recordVoucher(t: Turn, call: RecordVoucherCall, c: VoiceCandidate
       WHERE v.company_id = $1 AND t.base_type = $2 AND v.total_minor = $3
         AND v.counterparty_id IS NOT DISTINCT FROM $4 AND v.posted_at > now() - interval '10 minutes'
       ORDER BY v.posted_at DESC LIMIT 1`, [ctx.company.id, type, preview.totalMinor, (input.counterpartyId as string | null) ?? null]);
-  if (dup) warnings.push(T.duplicate(type, dup.minutes, dup.voucher_no));
+  if (dup) warnings.push(T.duplicate(type, dup.minutes, spokenNo(dup.voucher_no)));
   const backdated = daysBetween(date, today) > 7;
   const overLimit = preview.totalMinor > ctx.company.voice_limit_minor;
   const needsScreenConfirm = backdated || overLimit;
@@ -364,6 +364,9 @@ function plainNumbers(node: unknown): void {
   if (typeof o.value === 'string' && /^\d{1,3}(,\d{2,3})+(\.\d+)?$/.test(o.value)) o.value = o.value.replace(/,/g, '');
   for (const v of Object.values(o)) if (v && typeof v === 'object') plainNumbers(v);
 }
+
+/** "SI/26-27/0007" is read aloud as "7": the type is already in the sentence ("Sale number 7"). */
+export const spokenNo = (voucherNo: string) => voucherNo.replace(/^[A-Z]{2}\/[\d-]+\/0*(\d+)$/, '$1');
 
 function buildReadback(
   T: Messages, type: string, input: VoucherInputRaw, preview: Awaited<ReturnType<typeof previewVoucher>>, partyName: string | null,
@@ -411,7 +414,7 @@ export async function confirmSession(
     }
     const r = await reverseVoucher(db, companyId, s.target_voucher_id, { userId, source: 'VOICE', idempotencyKey: `voice-reverse:${s.id}` });
     await db.query(`UPDATE voice_sessions SET status = 'POSTED', voucher_id = $2, updated_at = now() WHERE id = $1`, [s.id, r.id]);
-    return { kind: 'posted', sessionId: null, lang, speech: T.reversed(r.voucherNo), voucher: { id: r.id, voucherNo: r.voucherNo, voucherType: r.voucherType } };
+    return { kind: 'posted', sessionId: null, lang, speech: T.reversed(spokenNo(r.voucherNo)), voucher: { id: r.id, voucherNo: r.voucherNo, voucherType: r.voucherType } };
   }
   if (!s.draft_id || !s.draft_hash) throw new AppError('NOTHING_TO_CONFIRM', 409, T.nothingToConfirm);
   const draft = await one<{ payload: VoucherInputRaw }>(db, `SELECT payload FROM voucher_drafts WHERE id = $1`, [s.draft_id]);
@@ -428,7 +431,7 @@ export async function confirmSession(
   await db.query(`UPDATE voice_sessions SET status = 'POSTED', voucher_id = $2, updated_at = now() WHERE id = $1`, [s.id, posted.id]);
   return {
     kind: 'posted', sessionId: null, lang,
-    speech: posted.alreadyPosted ? T.alreadyPosted(posted.voucherType, posted.voucherNo) : T.posted(posted.voucherType, posted.voucherNo),
+    speech: posted.alreadyPosted ? T.alreadyPosted(posted.voucherType, spokenNo(posted.voucherNo)) : T.posted(posted.voucherType, spokenNo(posted.voucherNo)),
     voucher: { id: posted.id, voucherNo: posted.voucherNo, voucherType: posted.voucherType },
   };
 }
@@ -525,12 +528,14 @@ async function prepareReverse(t: Turn, q: { voucher_type: string; voucher_no: st
   const v = await maybeOne<{ id: string; voucher_no: string; voucher_date: string; total_minor: bigint; party: string | null }>(db,
     `SELECT v.id, v.voucher_no, v.voucher_date::text, v.total_minor, cp.legal_name AS party
        FROM vouchers v JOIN voucher_types t ON t.id = v.voucher_type_id LEFT JOIN counterparties cp ON cp.id = v.counterparty_id
-      WHERE v.company_id = $1 AND t.base_type = $2 AND ($3::text IS NULL OR v.voucher_no = $3)
+      WHERE v.company_id = $1 AND t.base_type = $2
+        -- "reverse sale 7" finds SI/26-27/0007 too (the latest such number, so this year's first).
+        AND ($3::text IS NULL OR v.voucher_no = $3 OR ($3 ~ '^[0-9]+$' AND v.voucher_no ~ ('^[A-Z]{2}/[0-9-]+/0*' || $3 || '$')))
         AND v.reverses_voucher_id IS NULL AND NOT EXISTS (SELECT 1 FROM vouchers r WHERE r.reverses_voucher_id = v.id)
       ORDER BY v.chain_seq DESC LIMIT 1`, [ctx.company.id, q.voucher_type, q.voucher_no]);
   const label = T.voucher(q.voucher_type);
   if (!v) return keepAsking(t, null, T.voucherNotFound(label, q.voucher_no));
-  const speech = T.reverseQuestion(label, v.voucher_no, T.date(v.voucher_date), T.money(v.total_minor), v.party);
+  const speech = T.reverseQuestion(label, spokenNo(v.voucher_no), T.date(v.voucher_date), T.money(v.total_minor), v.party);
   const at = new Date();
   await db.query(
     `UPDATE voice_sessions SET kind = 'REVERSE', transcripts = $2, target_voucher_id = $3, readback = $4, readback_at = $5, total_minor = $6, updated_at = now() WHERE id = $1`,

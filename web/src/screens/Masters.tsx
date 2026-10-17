@@ -5,7 +5,7 @@ import { useKeys } from '../keys';
 import { ItemForm, LedgerForm, PartyForm } from '../components/QuickCreate';
 import { EditGroup, EditItem, EditLedger, EditParty } from '../components/EditMasters';
 import { ErrorBox, Kbd, ScreenHead } from '../components/ui';
-import { drcr, inr, pct } from '../format';
+import { drcr, fyStart, inr, pct } from '../format';
 
 type Tab = 'parties' | 'ledgers' | 'items' | 'groups';
 
@@ -139,11 +139,19 @@ export function Settings() {
   const [gstin, setGstin] = useState(co.gstin ?? '');
   const [autoPost, setAutoPost] = useState(Boolean(co.autoPost));
   const [autoPostLimit, setAutoPostLimit] = useState(inr(co.autoPostLimitMinor ?? '5000000').replace(/,/g, ''));
+  const [fyNumbering, setFyNumbering] = useState(co.fyNumberingFrom ?? '');
+  // This year's start and the next two: numbering by financial year begins on the first day of one of them.
+  const thisFy = fyStart(app.status.today, co.fyStartMonth);
+  const fyOptions = [0, 1, 2].map((n) => `${Number(thisFy.slice(0, 4)) + n}${thisFy.slice(4)}`);
+  const sampleNo = (from: string) => `SI/${from.slice(2, 4)}-${String((Number(from.slice(0, 4)) + 1) % 100).padStart(2, '0')}/0001`;
   const [chain, setChain] = useState<{ ok: boolean; checked: number; head?: string; brokenAt?: { voucherNo: string } } | null>(null);
   const [err, setErr] = useState<{ message: string } | null>(null);
   const save = async () => {
     try {
-      await api.patch(c(''), { name, lockDate: lockDate || null, voiceLimit, roundInvoice, gstin: gstin || null, autoPost, autoPostLimit });
+      await api.patch(c(''), {
+        name, lockDate: lockDate || null, voiceLimit, roundInvoice, gstin: gstin || null, autoPost, autoPostLimit,
+        ...(fyNumbering && fyNumbering !== co.fyNumberingFrom ? { fyNumberingFrom: fyNumbering } : {}),
+      });
       await app.refreshCompany();
       app.toast('Settings saved');
       setErr(null);
@@ -160,6 +168,14 @@ export function Settings() {
         <label className="check"><input type="checkbox" checked={roundInvoice} onChange={(e) => setRoundInvoice(e.target.checked)} /> Round invoice totals to the rupee</label>
         <label className="check"><input type="checkbox" checked={autoPost} onChange={(e) => setAutoPost(e.target.checked)} /> Auto-post uploaded documents: entries that pass every check are posted without waiting for you</label>
         {autoPost && <label>Auto-post only up to (₹ per entry) — larger ones wait for Ctrl+A<input value={autoPostLimit} onChange={(e) => setAutoPostLimit(e.target.value)} inputMode="decimal" /></label>}
+        <label>Voucher numbers by financial year from
+          <select value={fyNumbering} onChange={(e) => setFyNumbering(e.target.value)}>
+            {fyNumbering && !fyOptions.includes(fyNumbering) && <option value={fyNumbering}>{fyNumbering}</option>}
+            {fyOptions.map((d) => <option key={d} value={d}>{d} (like {sampleNo(d)})</option>)}
+          </select>
+        </label>
+        <p className="muted small span-2">From that date numbers carry the type and year (SI sales, PI purchase, CN, DN, PY, RC, CT, JV), so
+          invoices of different years never share a number. It can start only with a year that has no vouchers yet, so a year's series is never mixed.</p>
         <ErrorBox error={err} />
         <div className="form-actions"><button className="primary" type="submit">Save</button></div>
       </form>

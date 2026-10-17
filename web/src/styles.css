@@ -428,3 +428,9 @@ tr.switched-off td { color: var(--muted); }
 .check-error .check-icon { background: #fde7e5; color: var(--bad); }
 @media (prefers-color-scheme: dark) { .check-error .check-icon { background: #3d1f1d; } }
 .year-close { margin-top: 0.5rem; }
+
+/* ---------- reminder channels ---------- */
+.reminders { margin-bottom: 1.5rem; padding: 1rem; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+.reminders fieldset { margin: 1rem 0 0; padding: 0.75rem 1rem 1rem; border: 1px solid var(--line); border-radius: 8px; }
+.reminders legend { padding: 0 0.4rem; font-weight: 600; }
+.reminders code { word-break: break-word; }

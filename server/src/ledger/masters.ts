@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import type { PGlite } from '@electric-sql/pglite';
 import { many, maybeOne, one, type Db } from '../db/client';
 import { AppError, invalid, notFound } from '../lib/errors';
-import { addDays } from '../lib/dates';
+import { addDays, fyStart } from '../lib/dates';
 import { isValidGstin, gstinPan, gstinState } from '../lib/gstin';
 import { fromMinor, percentToPpm, toMinor } from '../lib/money';
 import { normName } from '../lib/text';
@@ -73,8 +73,9 @@ export async function createCompany(db: PGlite, c: NewCompany): Promise<string> 
   if (c.gstin && !isValidGstin(c.gstin)) throw invalid('GSTIN is not valid');
   return db.transaction(async (tx) => {
     const company = await one<{ id: string }>(tx,
-      `INSERT INTO companies (tenant_id, name, gstin, state_code, books_from) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-      [crypto.randomUUID(), c.name, c.gstin ?? null, c.stateCode, c.booksFrom]);
+      // A new company numbers vouchers by financial year (SI/26-27/0001) from its first year.
+      `INSERT INTO companies (tenant_id, name, gstin, state_code, books_from, fy_numbering_from) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+      [crypto.randomUUID(), c.name, c.gstin ?? null, c.stateCode, c.booksFrom, fyStart(c.booksFrom)]);
     const ids = new Map<string, string>();
     for (const g of STANDARD_GROUPS) {
       const path = g.parent ? `${g.parent}.${g.code}` : g.code;

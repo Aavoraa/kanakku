@@ -23,17 +23,33 @@ export function VoucherView({ params }: { params: { id: string } }) {
   useEffect(() => { void api.get<Detail>(c(`/vouchers/${params.id}`)).then(setV).catch((e) => setError({ message: String(e.message) })); }, [params.id, app.dataVersion]);
 
   const canChange = v && !v.reversesVoucherId && !v.reversedById && v.voucherType !== 'OPENING';
+  // A sale or purchase in a closed (locked) period is corrected with a credit / debit note dated today, not reversed.
+  const closedInvoice = Boolean(v && app.company.lockDate && v.date <= app.company.lockDate
+    && ['SALES', 'PURCHASE', 'CREDIT_NOTE', 'DEBIT_NOTE'].includes(v.voucherType));
+  const noteName = v?.voucherType === 'SALES' ? 'credit note' : v?.voucherType === 'PURCHASE' ? 'debit note' : v?.voucherType === 'CREDIT_NOTE' ? 'sales invoice' : 'purchase';
+  const offerNote = async () => {
+    if (!v) return;
+    if (!window.confirm(`${v.typeName} No. ${v.voucherNo} is in a closed period (books locked up to ${app.company.lockDate}), so it cannot be reversed or altered. `
+      + `Prepare a ${noteName} dated today against it instead? You can check and change it before posting.`)) return;
+    try { app.go({ screen: 'voucher', params: { input: await api.get<VoucherInput>(c(`/vouchers/${v.id}/correction-note`)) } }); }
+    catch (e) { setError({ message: e instanceof ApiError ? e.message : String(e) }); }
+  };
   const reverse = async () => {
     if (!v || !canChange) return;
+    if (closedInvoice) { await offerNote(); return; }
     if (!window.confirm(`Reverse ${v.typeName} No. ${v.voucherNo}? A mirror-image voucher is posted; the original stays in the books.`)) return;
     try {
       const r = await api.post<{ voucherNo: string }>(c(`/vouchers/${v.id}/reverse`), {});
       app.toast(`Reversed. Reversal No. ${r.voucherNo}`);
       app.bumpData();
-    } catch (e) { setError({ message: e instanceof ApiError ? e.message : String(e) }); }
+    } catch (e) {
+      if (e instanceof ApiError && e.code === 'USE_NOTE') { await offerNote(); return; }
+      setError({ message: e instanceof ApiError ? e.message : String(e) });
+    }
   };
   const alter = () => {
     if (!v?.input || !canChange) return;
+    if (closedInvoice) { void offerNote(); return; }
     app.go({ screen: 'voucher', params: { input: v.input, alterOf: v.id, alterNo: v.voucherNo } });
   };
   useKeys({ 'Alt+X': () => { void reverse(); }, 'Alt+A': () => alter() });

@@ -13,6 +13,8 @@ export interface Company {
   round_invoice: boolean;
   voice_limit_minor: bigint;
   journal_allows_cash: boolean;
+  /** From this date voucher numbers read SI/27-28/0001; before it, plain numbers. */
+  fy_numbering_from: string | null;
 }
 
 export interface LedgerInfo {
@@ -53,7 +55,7 @@ export class LedgerContext {
   static async load(db: Db, companyId: string): Promise<LedgerContext> {
     const company = await maybeOne<Company>(db,
       `SELECT id, name, gstin, state_code, fy_start_month, books_from::text, lock_date::text,
-              round_invoice, voice_limit_minor, journal_allows_cash
+              round_invoice, voice_limit_minor, journal_allows_cash, fy_numbering_from::text
          FROM companies WHERE id = $1`, [companyId]);
     if (!company) throw notFound('Company');
     const rows = await many<{

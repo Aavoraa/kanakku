@@ -10,7 +10,7 @@ import { complianceAlerts, complianceItems, complianceSettings, createTask, dele
 import { STATES, isValidGstin } from '../lib/gstin';
 import { toMinor } from '../lib/money';
 import { createGroup, createItem, createLedger, createParty, listGroups, setOpeningBalance } from '../ledger/masters';
-import { alterVoucher, postVoucher, previewVoucher, reverseVoucher, verifyChain, type Source } from '../ledger/post';
+import { alterVoucher, correctionNote, postVoucher, previewVoucher, reverseVoucher, verifyChain, type Source } from '../ledger/post';
 import { balanceSheet, profitAndLoss, trialBalance } from '../reports/financials';
 import { ageing, daybook, ledgerStatement, openBills, voucherDetail } from '../reports/registers';
 import { gstSummary } from '../reports/gst';
@@ -29,6 +29,7 @@ import { renameGroup, updateItem, updateLedger, updateParty } from '../ledger/al
 import { countCash, createBox, DENOMINATIONS, listBoxes, pettyCashBook, recordExpense, topUp, updateBox } from '../pettycash/service';
 import { addSchedule, assetDetail, createAsset, listAssets, logUpkeep, removeSchedule, updateAsset } from '../assets/service';
 import { clearOldDocuments, closeYear, healthCheck, oldDocuments, yearClosePreview } from '../upkeep/service';
+import { loadConfig, publicConfig, recentLog, saveConfig, sendDigest, TEMPLATES } from '../notify/service';
 
 type Req = FastifyRequest<{ Params: Record<string, string>; Querystring: Record<string, string | undefined>; Body: any }>;
 
@@ -104,7 +105,16 @@ export function registerRoutes(app: FastifyInstance, db: PGlite) {
       b[k] = String(b[k]).replace(/,/g, '').trim();
       if (!/^\d+(\.\d+)?$/.test(b[k])) throw invalid('Enter the limit as an amount in rupees, like 50000');
     }
+    if (b.fyNumberingFrom !== undefined) {
+      // Only from the first day of a financial year that has no vouchers yet, so a year's series never mixes formats.
+      const d = b.fyNumberingFrom;
+      if (typeof d !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(d) || fyStart(d, c.fy_start_month) !== d) throw invalid('Numbering by financial year starts on the first day of a financial year');
+      if (await maybeOne(db, `SELECT 1 FROM vouchers WHERE company_id = $1 AND voucher_date >= $2 LIMIT 1`, [c.id, d])) {
+        throw invalid('Vouchers are already posted in that year; choose a year that has none yet');
+      }
+    }
     if (b.name !== undefined) await db.query(`UPDATE companies SET name = $2 WHERE id = $1`, [c.id, b.name.trim().slice(0, 120)]);
+    if (b.fyNumberingFrom !== undefined) await db.query(`UPDATE companies SET fy_numbering_from = $2 WHERE id = $1`, [c.id, b.fyNumberingFrom]);
     if (b.lockDate !== undefined) await db.query(`UPDATE companies SET lock_date = $2 WHERE id = $1`, [c.id, b.lockDate || null]);
     if (b.voiceLimit !== undefined) await db.query(`UPDATE companies SET voice_limit_minor = $2 WHERE id = $1`, [c.id, toMinor(b.voiceLimit)]);
     if (b.roundInvoice !== undefined) await db.query(`UPDATE companies SET round_invoice = $2 WHERE id = $1`, [c.id, Boolean(b.roundInvoice)]);
@@ -190,6 +200,8 @@ export function registerRoutes(app: FastifyInstance, db: PGlite) {
     const c = await company(req);
     return reverseVoucher(db, c.id, req.params.id, { userId: uid(req), source: 'MANUAL', date: body(req).date });
   });
+  // A sale or purchase in a closed period is corrected by a note; this prepares it (nothing is posted).
+  app.get(`${P}/vouchers/:id/correction-note`, async (req: Req) => correctionNote(db, (await company(req)).id, req.params.id));
   app.post(`${P}/vouchers/:id/alter`, async (req: Req) => {
     const c = await company(req);
     const key = req.headers['idempotency-key'];
@@ -278,6 +290,18 @@ export function registerRoutes(app: FastifyInstance, db: PGlite) {
   app.post(`${P}/assets/:id/schedules`, async (req: Req) => addSchedule(db, (await company(req)).id, req.params.id, body(req), uid(req)));
   app.delete(`${P}/asset-schedules/:id`, async (req: Req) => { await removeSchedule(db, (await company(req)).id, req.params.id, uid(req)); return { ok: true }; });
   app.post(`${P}/assets/:id/logs`, async (req: Req) => logUpkeep(db, (await company(req)).id, req.params.id, body(req), { idempotencyKey: idem(req), userId: uid(req) }));
+
+  // ---------- Reminder digests by email, WhatsApp, SMS ----------
+  app.get(`${P}/notifications`, async (req: Req) => {
+    const c = await company(req);
+    return { config: publicConfig(await loadConfig(db, c.id)), templates: TEMPLATES, log: await recentLog(db, c.id) };
+  });
+  app.put(`${P}/notifications`, async (req: Req) => saveConfig(db, (await company(req)).id, body(req), uid(req)));
+  app.post(`${P}/notifications/test`, async (req: Req) => {
+    const ch = body(req).channel;
+    if (ch !== 'EMAIL' && ch !== 'WHATSAPP' && ch !== 'SMS') throw invalid('Choose EMAIL, WHATSAPP or SMS');
+    return sendDigest(db, (await company(req)).id, { test: true, only: ch });
+  });
 
   // ---------- App upkeep: health check, old uploads, closing the year ----------
   app.get(`${P}/upkeep/health`, async (req: Req) => healthCheck(db, (await company(req)).id, { isAdmin: await isAdmin(db, uid(req)) }));

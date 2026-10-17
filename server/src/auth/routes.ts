@@ -60,7 +60,7 @@ export function registerAuthRoutes(app: FastifyInstance, db: PGlite) {
     return (await db.query(
       `SELECT c.id, c.name, c.gstin, c.state_code AS "stateCode", c.books_from::text AS "booksFrom", c.lock_date::text AS "lockDate",
               c.fy_start_month AS "fyStartMonth", c.voice_limit_minor AS "voiceLimitMinor", c.round_invoice AS "roundInvoice", m.role,
-              c.auto_post AS "autoPost", c.auto_post_limit_minor AS "autoPostLimitMinor"
+              c.auto_post AS "autoPost", c.auto_post_limit_minor AS "autoPostLimitMinor", c.fy_numbering_from::text AS "fyNumberingFrom"
          FROM company_members m JOIN companies c ON c.id = m.company_id
         WHERE m.user_id = $1 ORDER BY c.created_at`, [user.id])).rows;
   });

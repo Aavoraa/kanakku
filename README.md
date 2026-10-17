@@ -133,8 +133,36 @@ days ahead to remind). For GSTR-3B and PMT-06 it shows the cash GST payable work
 Overdue and due-soon items show as a count on the bell, in its list, and in **Due soon** on the
 Gateway. **Show desktop pop-ups** (on the calendar) adds operating-system notifications, once a day
 for anything overdue or due within two days. They are shown by this computer only (nothing is sent
-anywhere), and only while Kannaku AI is open in a browser tab. Email, SMS and WhatsApp reminders are
-not built.
+anywhere), and only while Kannaku AI is open in a browser tab.
+
+### Reminders by email, WhatsApp and SMS
+
+**Email / WhatsApp / SMS reminders** on the calendar sends a daily digest of what is overdue or due soon
+at the time you choose (IST), once a day, while the server is running. It goes through your own
+accounts, and each channel has a **Send a test** button and a log of what was sent or failed:
+
+- **Email**: your mailbox's SMTP server. For Gmail: smtp.gmail.com, port 587, and an app password.
+- **WhatsApp**: Meta's WhatsApp Business Cloud API. Needs a verified business number, a permanent access
+  token, the phone number ID and a Utility template approved by Meta with the body shown on the screen.
+  Meta charges per message. The Graph API version is a setting; raise it when Meta retires the old one.
+- **SMS**: any Indian provider's send link, with `{to}` and `{message}` where the number and text go.
+  Register your entity, sender ID and the template shown on the screen on DLT first, or the operators drop it.
+
+Passwords and tokens are stored in the database and never shown again in the browser (or written to the
+audit log). Amounts are left out of the digest unless you switch them on.
+
+## Voucher numbers and corrections
+
+- From the start of a financial year, numbers carry the type and year: `SI/27-28/0001` (sales), `PI`
+  purchase, `CN` / `DN` notes, `PY` payment, `RC` receipt, `CT` contra, `JV` journal. Invoices of different
+  years never share a number, and they fit GST's 16 characters. New companies use this from their first
+  year; existing companies switch at the start of their next financial year, so the current year's
+  series stays unbroken. The start year can be changed in Settings to any year without vouchers yet.
+  Voice reads only the running number ("Sale number 7"), and "reverse sale 7" finds `SI/27-28/0007`.
+- A sale or purchase dated in a closed (locked) period is not reversed or altered. **Reverse** or
+  **Alter** offers a credit note (for a sale) or a debit note (for a purchase) dated today, against the
+  original invoice, filled in from it to check before posting. Payments, receipts, journals and contras
+  in a closed period are still reversed, dated today.
 
 ## Petty cash (key E)
 
@@ -275,6 +303,7 @@ What leaves this computer, and to whom:
 | What you say or type to the voice assistant | Anthropic | AI is on |
 | Your company name and GSTIN, and ledger, party and item names, with each of the above | Anthropic | AI is on |
 | Microphone audio | Google (Chrome) or Microsoft (Edge) speech recognition | You use the mic, or the wake word is on |
+| Company name, what is due and when (amounts if chosen) | Your mail provider, Meta (WhatsApp) or your SMS provider | Reminders by that channel are on |
 
 Recognised Excel/CSV statements, journals and registers are read on this computer. Kannaku AI never
 receives or stores audio, only the text the browser produces; voice requests are kept in the company's

@@ -108,7 +108,7 @@ export async function postInTx(tx: Db, companyId: string, input: VoucherInput, o
     await assertStockAvailable(tx, companyId, input.date, plan.inventory);
 
     const type = await voucherType(tx, companyId, input.voucherType);
-    const voucherNo = await nextNumber(tx, type.id, type.prefix, fy);
+    const voucherNo = await nextNumber(tx, type.id, fy, { prefix: type.prefix, base: input.voucherType, date: input.date, company: ctx.company });
     const v = await insertPosted(tx, {
       companyId,
       voucherTypeId: type.id,
@@ -201,12 +201,59 @@ async function voucherType(tx: Db, companyId: string, base: BaseType) {
   return t;
 }
 
-async function nextNumber(tx: Db, voucherTypeId: string, prefix: string, fy: number): Promise<string> {
+const TRADING = new Set<BaseType>(['SALES', 'PURCHASE', 'CREDIT_NOTE', 'DEBIT_NOTE']);
+/** The document that undoes each trading voucher once its period is closed. */
+const NOTE_FOR: Record<string, BaseType> = { SALES: 'CREDIT_NOTE', PURCHASE: 'DEBIT_NOTE', CREDIT_NOTE: 'SALES', DEBIT_NOTE: 'PURCHASE' };
+
+/**
+ * A ready-to-post draft that undoes a sale or purchase from a closed period: a credit note against a sale, a debit
+ * note against a purchase (and a fresh invoice to undo a note), dated today, with the original's party and lines.
+ * It is only a draft: the voucher screen shows it for checking before anything is posted.
+ */
+export async function correctionNote(db: Db, companyId: string, voucherId: string) {
+  const v = await maybeOne<{ voucher_no: string; voucher_date: string; base_type: BaseType; party_ref_no: string | null; input: VoucherInputRaw | null }>(db,
+    `SELECT v.voucher_no, v.voucher_date::text, t.base_type, v.party_ref_no, v.input
+       FROM vouchers v JOIN voucher_types t ON t.id = v.voucher_type_id WHERE v.id = $1 AND v.company_id = $2`, [voucherId, companyId]);
+  if (!v) throw notFound('Voucher');
+  if (!TRADING.has(v.base_type) || !v.input) throw new AppError('NO_NOTE', 422, 'Only sales, purchases and notes are corrected with a note');
+  const type = NOTE_FOR[v.base_type];
+  const i = v.input;
+  // A purchase's debit note quotes the supplier's invoice number; a sale's credit note quotes our invoice.
+  const originalRef = v.base_type === 'PURCHASE' ? (v.party_ref_no ?? v.voucher_no) : v.base_type === 'SALES' ? v.voucher_no : null;
+  return {
+    voucherType: type, date: todayIST(), counterpartyId: i.counterpartyId ?? null, paymentMode: i.paymentMode, bankLedgerId: i.bankLedgerId ?? null,
+    placeOfSupply: i.placeOfSupply ?? null, pricesIncludeTax: i.pricesIncludeTax, reverseCharge: type === 'PURCHASE' || type === 'DEBIT_NOTE' ? i.reverseCharge : false,
+    originalRef: originalRef?.slice(0, 16) ?? null, partyRefNo: null, partyRefDate: null,
+    items: i.items ?? [],
+    narration: `Against ${v.base_type.replace('_', ' ').toLowerCase()} ${v.voucher_no} of ${v.voucher_date} (period closed)`,
+  } satisfies VoucherInputRaw;
+}
+
+/** Short code per voucher type in financial-year numbers (SI/27-28/0001). */
+export const TYPE_CODE: Record<BaseType, string> = {
+  SALES: 'SI', PURCHASE: 'PI', CREDIT_NOTE: 'CN', DEBIT_NOTE: 'DN', PAYMENT: 'PY', RECEIPT: 'RC', CONTRA: 'CT', JOURNAL: 'JV', OPENING: 'OB',
+};
+
+/**
+ * The number a voucher is shown and printed with. From the company's fy_numbering_from date it carries the type and
+ * financial year (SI/27-28/0001, at most 16 characters as GST rule 46 allows), so invoices of different years never
+ * share a number; before that date, the plain running number used until then.
+ */
+export function formatVoucherNo(no: bigint, o: { prefix: string; base: BaseType; date: string; fyNumberingFrom: string | null; fyStartMonth: number }): string {
+  if (!o.fyNumberingFrom || o.date < o.fyNumberingFrom) return `${o.prefix}${no}`;
+  const y = Number(o.date.slice(0, 4));
+  const start = Number(o.date.slice(5, 7)) >= o.fyStartMonth ? y : y - 1;
+  const label = o.fyStartMonth === 1 ? String(start) : `${String(start % 100).padStart(2, '0')}-${String((start + 1) % 100).padStart(2, '0')}`;
+  return `${TYPE_CODE[o.base]}/${label}/${String(no).padStart(4, '0')}`;
+}
+
+async function nextNumber(tx: Db, voucherTypeId: string, fy: number,
+  o: { prefix: string; base: BaseType; date: string; company: { fy_numbering_from: string | null; fy_start_month: number } }): Promise<string> {
   const r = await one<{ no: bigint }>(tx,
     `INSERT INTO voucher_series (voucher_type_id, fiscal_year, next_no) VALUES ($1, $2, 2)
      ON CONFLICT (voucher_type_id, fiscal_year) DO UPDATE SET next_no = voucher_series.next_no + 1
      RETURNING next_no - 1 AS no`, [voucherTypeId, fy]);
-  return `${prefix}${r.no}`;
+  return formatVoucherNo(r.no, { prefix: o.prefix, base: o.base, date: o.date, fyNumberingFrom: o.company.fy_numbering_from, fyStartMonth: o.company.fy_start_month });
 }
 
 interface PostedRecord {
@@ -333,7 +380,17 @@ export async function reverseInTx(tx: Db, companyId: string, voucherId: string, 
     if (already) throw new AppError('ALREADY_REVERSED', 409, `Already reversed by ${already.voucher_no}`);
 
     const ctx = await LedgerContext.load(tx, companyId);
+    const locked = Boolean(ctx.company.lock_date && v.voucher_date <= ctx.company.lock_date);
+    // An invoice in a closed (locked, possibly already filed) period is not reversed: GST corrects it with a credit
+    // or debit note dated today against the original. correctionNote() prepares that note.
+    if (locked && TRADING.has(v.base_type)) {
+      const note = NOTE_FOR[v.base_type];
+      throw new AppError('USE_NOTE', 409,
+        `${v.base_type.replace('_', ' ').toLowerCase()} ${v.voucher_no} is in a closed period (books locked up to ${ctx.company.lock_date}). Issue a ${note.replace('_', ' ').toLowerCase()} dated today instead.`,
+        { voucherId: v.id, voucherNo: v.voucher_no, noteType: note });
+    }
     let date = opts.date ?? v.voucher_date;
+    // Payments, receipts, journals and contras in a closed period are reversed with today's date.
     if (ctx.company.lock_date && date <= ctx.company.lock_date) date = todayIST();
 
     const entries = await many<{ ledger_id: string; amount_minor: bigint; bill_ref: string | null; alloc_type: string | null; bill_date: string | null; due_date: string | null }>(tx,
@@ -347,7 +404,7 @@ export async function reverseInTx(tx: Db, companyId: string, voucherId: string, 
       `SELECT line_no, item_id, godown_id, qty::text, unit_cost::text FROM inventory_entries WHERE voucher_id = $1 ORDER BY line_no`, [voucherId]);
 
     const fy = fiscalYear(date, ctx.company.fy_start_month);
-    const voucherNo = await nextNumber(tx, v.voucher_type_id, v.prefix, fy);
+    const voucherNo = await nextNumber(tx, v.voucher_type_id, fy, { prefix: v.prefix, base: v.base_type, date, company: ctx.company });
     const posted = await insertPosted(tx, {
       companyId, voucherTypeId: v.voucher_type_id, fiscalYear: fy, voucherNo, date,
       counterpartyId: v.counterparty_id, partyRefNo: null, partyRefDate: null, originalRef: v.voucher_no,

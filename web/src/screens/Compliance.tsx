@@ -3,6 +3,7 @@ import { api, c, ApiError, type ComplianceItem, type ComplianceSettings, type Co
 import { useApp } from '../state';
 import { Empty, ErrorBox, ScreenHead } from '../components/ui';
 import { addDays, fmtDate, fromMinor, inr } from '../format';
+import { Reminders } from '../components/Reminders';
 import { desktopOn, desktopSupported, disableDesktop, dueText, enableDesktop } from '../notify';
 
 interface View { from: string; to: string; today: string; settings: ComplianceSettings; items: ComplianceItem[]; tasks: ComplianceTask[] }
@@ -28,6 +29,7 @@ export function Compliance() {
   const [view, setView] = useState<View | null>(null);
   const [err, setErr] = useState<Err>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showReminders, setShowReminders] = useState(false);
   const to = addDays(start, 123);
 
   const load = useCallback(async () => {
@@ -48,9 +50,11 @@ export function Compliance() {
         <button onClick={() => setStart(addDays(app.status.today, -31))}>Now</button>
         <button onClick={() => setStart(addDays(start, 91))}>Later →</button>
         <button onClick={() => setShowSettings((s) => !s)} aria-expanded={showSettings}>Which returns apply</button>
+        <button onClick={() => setShowReminders((s) => !s)} aria-expanded={showReminders}>Email / WhatsApp / SMS reminders</button>
       </ScreenHead>
       <ErrorBox error={err} />
       {showSettings && view && <SettingsCard settings={view.settings} hasGstin={Boolean(app.company.gstin)} onSaved={changed} />}
+      {showReminders && <Reminders />}
       <p className="hint-bar">These are the standard due dates in the law. The government often extends them: check
         {' '}<a href="https://www.gst.gov.in" target="_blank" rel="noreferrer">gst.gov.in</a> and
         {' '}<a href="https://www.incometax.gov.in" target="_blank" rel="noreferrer">incometax.gov.in</a>, and use <em>Change due date</em> when they do.
