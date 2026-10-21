@@ -12,15 +12,17 @@ import { createDemoLogin } from './auth/auth';
  * night. Without one, each copy keeps its own in-memory database and a login only works on the copy that made it.
  * Backups, reminder digests and document processing are left out: nothing stays running between requests.
  */
-const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+const url = config.demoDatabase?.url;
 
 const ready = (async () => {
   let db: Database;
   if (url) {
+    console.log(`Using the Postgres database in ${config.demoDatabase!.variable}.`);
     db = await openPostgres(url);
     await wipeIfDue(db);
   } else {
-    console.warn('DATABASE_URL is not set: using an in-memory database, so logins break when Vercel runs more than one copy.');
+    console.warn('No DATABASE_URL: using an in-memory database, so logins break when Vercel runs more than one copy. '
+      + 'Connect a Neon database in the Vercel project (Storage) and redeploy.');
     db = await openDb();
   }
   if (config.demoLogin) await createDemoLogin(db, config.demoLogin);

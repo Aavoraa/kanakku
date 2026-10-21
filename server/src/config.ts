@@ -17,8 +17,17 @@ const demo = process.env.VERCEL === '1';
 
 const dataDir = path.resolve(ROOT_DIR, process.env.DATA_DIR ?? (demo ? '/tmp/kannaku' : 'data'));
 
+// The demo's shared Postgres. Vercel's Neon connection sets DATABASE_URL, or PREFIX_DATABASE_URL when a custom
+// prefix was chosen (the _UNPOOLED variants are skipped: the pooled address suits many short-lived servers).
+const demoDatabaseVar = demo
+  ? ['DATABASE_URL', 'POSTGRES_URL']
+    .flatMap((n) => [n, ...Object.keys(process.env).filter((k) => k.endsWith(`_${n}`)).sort()])
+    .find((k) => process.env[k])
+  : undefined;
+
 export const config = {
   demo,
+  demoDatabase: demoDatabaseVar ? { variable: demoDatabaseVar, url: process.env[demoDatabaseVar]! } : null,
   // The shared login on the demo, shown on the sign-in screen. Everyone who uses it sees the same books.
   demoLogin: demo ? { email: 'demo@example.com', password: 'demo1234' } : null,
   port: Number(process.env.PORT ?? 4000),

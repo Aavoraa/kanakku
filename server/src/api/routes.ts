@@ -91,6 +91,8 @@ export function registerRoutes(app: FastifyInstance, db: Database) {
     const hasUsers = Boolean(await maybeOne(db, 'SELECT 1 FROM users LIMIT 1'));
     return {
       app: 'Kannaku AI', aiEnabled: config.aiEnabled, model: config.model, today: todayIST(), states: STATES, hasUsers, demo: config.demo, demoLogin: config.demoLogin,
+      // Which database the demo uses (never its address), to check the Vercel setup from outside.
+      demoDatabase: config.demo ? (config.demoDatabase ? `postgres (${config.demoDatabase.variable})` : 'memory') : undefined,
       // Before the first sign-up only: books already on this machine, which the first account will own.
       unclaimed: hasUsers ? [] : (await many<{ name: string }>(db, 'SELECT name FROM companies ORDER BY created_at')).map((r) => r.name),
     };
