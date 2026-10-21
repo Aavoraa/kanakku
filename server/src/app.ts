@@ -18,7 +18,8 @@ declare module 'fastify' {
 const PUBLIC = [/^\/api\/v1\/status$/, /^\/api\/v1\/auth\/(signup|login|logout|me)$/];
 
 export async function buildApp(db: PGlite, opts: { serveWeb?: boolean } = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: { level: 'warn' }, bodyLimit: 5 * 1024 * 1024 });
+  // Behind Vercel's proxy, trust X-Forwarded-Proto so the session cookie is marked Secure.
+  const app = Fastify({ logger: { level: 'warn' }, bodyLimit: 5 * 1024 * 1024, trustProxy: config.demo });
   // BigInt (paise) serialises as a string; the client never sees a float amount.
   app.setReplySerializer((payload) => JSON.stringify(payload, bigintJson));
   await app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024, files: 20 } });

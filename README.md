@@ -51,6 +51,14 @@ Without a key everything else works, including Excel and CSV uploads.
 To try the bill-review screen without a key: stop the server, run `npm run demo:bill`, start again
 and press **R** on the Gateway.
 
+### Online demo on Vercel
+
+`vercel.json` builds a demo with `scripts/vercel-build.mjs`: the web app as static files and the server as
+one function. Vercel keeps nothing between runs, so the demo uses an in-memory database: everything entered
+is lost whenever Vercel restarts it, and backups and reminder emails do not run. Use it to show the app,
+never for real books. The AI key cannot be changed on the demo; if you set `ANTHROPIC_API_KEY` in the Vercel
+project, every visitor's AI use is billed to that key.
+
 ## Uploading documents
 
 Press **Ctrl+U** (or **R** on the Gateway) and drop files. Each file becomes ready-to-post entries:

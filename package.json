@@ -17,5 +17,8 @@
     "reset-password": "npm run reset-password --workspace server --",
     "restore-backup": "npm run restore-backup --workspace server --",
     "demo:bill": "npm run demo:bill --workspace server"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }

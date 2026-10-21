@@ -12,9 +12,13 @@ try {
   /* no .env file — fine */
 }
 
-const dataDir = path.resolve(ROOT_DIR, process.env.DATA_DIR ?? 'data');
+// On Vercel the app runs as a public demo: the database lives in memory and only /tmp is writable.
+const demo = process.env.VERCEL === '1';
+
+const dataDir = path.resolve(ROOT_DIR, process.env.DATA_DIR ?? (demo ? '/tmp/kannaku' : 'data'));
 
 export const config = {
+  demo,
   port: Number(process.env.PORT ?? 4000),
   dataDir,
   envFile,

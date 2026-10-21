@@ -17,6 +17,11 @@ export function AuthScreen({ status, onAuthed }: { status: Status; onAuthed: OnA
           <h1 className="auth-brand">Kannaku AI</h1>
           <p className="auth-tag">GST accounting you can type, scan or speak.</p>
         </div>
+        {status.demo && (
+          <p className="auth-note"><strong>This is a demo.</strong> Everything entered here is deleted when the demo restarts,
+            which can happen after a few minutes without use, and you may need to create an account again.
+            Do not enter real business or personal details.</p>
+        )}
         <div className="auth-tabs" role="tablist">
           <button role="tab" aria-selected={mode === 'login'} className={mode === 'login' ? 'on' : ''} onClick={() => setMode('login')}>Log in</button>
           <button role="tab" aria-selected={mode === 'signup'} className={mode === 'signup' ? 'on' : ''} onClick={() => setMode('signup')}>Create account</button>
@@ -67,7 +72,7 @@ function LoginForm({ onAuthed, onSwitch }: { onAuthed: OnAuthed; onSwitch: () =>
 function SignupForm({ status, onAuthed, onSwitch }: { status: Status; onAuthed: OnAuthed; onSwitch: () => void }) {
   const [me, setMe] = useState({ name: '', email: '', phone: '', password: '', confirm: '' });
   const [company, setCompany] = useState<CompanyDetails>(() => blankCompany(status.today));
-  const [demo, setDemo] = useState(false);
+  const [demo, setDemo] = useState(Boolean(status.demo));
   const [err, setErr] = useState<{ message: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const demoAlreadyHere = status.unclaimed.includes(DEMO);
