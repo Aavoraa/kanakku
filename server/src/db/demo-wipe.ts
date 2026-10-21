@@ -11,13 +11,18 @@ let checkedAt = 0;
 /** The demo's day starts at 03:00 IST (21:30 UTC). */
 const demoDay = () => new Date(Date.now() + 2.5 * 3600_000).toISOString().slice(0, 10);
 
-/** Empties the database if it has not been emptied this demo day. True when this server did it. */
-export async function wipeIfDue(db: Database): Promise<boolean> {
+/**
+ * Empties the database if it has not been emptied this demo day. True when this server did it. Refuses unless
+ * connected to `databaseName`, the demo's own database, so it can never empty one holding anything else.
+ */
+export async function wipeIfDue(db: Database, databaseName: string): Promise<boolean> {
   if (Date.now() - checkedAt < CHECK_EVERY_MS) return false;
   checkedAt = Date.now();
   const day = demoDay();
   if (await wipedOn(db) === day) return false;
   return db.transaction(async (tx) => {
+    const current = (await tx.query<{ d: string }>('SELECT current_database() AS d')).rows[0].d;
+    if (current !== databaseName) throw new Error(`Refusing to empty database ${current}: the demo only empties ${databaseName}.`);
     if (await wipedOn(tx) === day) return false; // another server has just done it
     await tx.exec('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');
     await tx.exec(MIGRATIONS_TABLE);

@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { openDb, type Database } from './db/client';
-import { openPostgres } from './db/postgres';
+import { openPostgres, ownDatabase } from './db/postgres';
 import { wipeIfDue } from './db/demo-wipe';
 import { buildApp } from './app';
 import { config } from './config';
@@ -8,19 +8,22 @@ import { createDemoLogin } from './auth/auth';
 
 /**
  * Entry point for the Vercel demo (built by scripts/vercel-build.mjs). Vercel runs several copies of this at once,
- * so they share one Postgres database (DATABASE_URL, e.g. Neon from Vercel's Storage tab), which is emptied every
- * night. Without one, each copy keeps its own in-memory database and a login only works on the copy that made it.
+ * so they share one Postgres server (DATABASE_URL, e.g. Neon from Vercel's Storage tab), using a database of their
+ * own there that is emptied every night. Without one, each copy keeps its own in-memory database and a login only works on the copy that made it.
  * Backups, reminder digests and document processing are left out: nothing stays running between requests.
  */
 const url = config.demoDatabase?.url;
+// The demo's own database on that server: it is emptied every night, so nothing else may live in it.
+// KANNAKU_DEMO_DATABASE only serves local checks, whose stand-in server has a single database.
+const DEMO_DATABASE = process.env.KANNAKU_DEMO_DATABASE || 'kannaku_demo';
 
 async function start() {
   let db: Database | null = null;
   try {
     if (url) {
-      console.log(`Using the Postgres database in ${config.demoDatabase!.variable}.`);
-      db = await openPostgres(url);
-      await wipeIfDue(db);
+      console.log(`Using the Postgres server in ${config.demoDatabase!.variable}, database ${DEMO_DATABASE}.`);
+      db = await openPostgres(await ownDatabase(url, DEMO_DATABASE));
+      await wipeIfDue(db, DEMO_DATABASE);
     } else {
       console.warn('No DATABASE_URL: using an in-memory database, so logins break when Vercel runs more than one copy. '
         + 'Connect a Neon database in the Vercel project (Storage) and redeploy.');
@@ -67,7 +70,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   const { app, db } = started;
   if (url) {
     try {
-      if (await wipeIfDue(db) && config.demoLogin) await createDemoLogin(db, config.demoLogin);
+      if (await wipeIfDue(db, DEMO_DATABASE) && config.demoLogin) await createDemoLogin(db, config.demoLogin);
     } catch (e) {
       console.error('Nightly demo wipe failed:', e);
     }
