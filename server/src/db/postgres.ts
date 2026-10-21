@@ -10,6 +10,27 @@ pg.defaults.parseInputDatesAsUTC = true;
 
 type Parser = (x: string, typeId?: number) => unknown;
 
+const NETWORK_CODES = new Set(['ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'EPIPE', 'EAI_AGAIN']);
+const isNetworkError = (e: unknown) => {
+  const err = e as { code?: string; message?: string };
+  return NETWORK_CODES.has(err.code ?? '') || /Connection terminated|socket disconnected/i.test(err.message ?? '');
+};
+
+/**
+ * Opens a connection, trying again when the network drops it before it is ready (seen with Neon when several servers
+ * start at once). Only opening is retried: nothing has been sent yet, so nothing can run twice.
+ */
+async function openWithRetry<T>(open: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await open();
+    } catch (e) {
+      if (attempt >= 3 || !isNetworkError(e)) throw e;
+      await new Promise((r) => setTimeout(r, 250 * attempt));
+    }
+  }
+}
+
 /**
  * The address of a database called `name` on the same server as `url`, creating it if needed. The demo keeps its
  * tables in a database of its own, so neither its migrations nor its nightly wipe can touch anything else stored
@@ -17,8 +38,11 @@ type Parser = (x: string, typeId?: number) => unknown;
  */
 export async function ownDatabase(url: string, name: string): Promise<string> {
   if (!/^[a-z_][a-z0-9_]*$/.test(name)) throw new Error(`Not a plain database name: ${name}`);
-  const client = new pg.Client({ connectionString: url });
-  await client.connect();
+  const client = await openWithRetry(async () => {
+    const c = new pg.Client({ connectionString: url });
+    try { await c.connect(); } catch (e) { await c.end().catch(() => {}); throw e; }
+    return c;
+  });
   try {
     const exists = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [name]);
     if (!exists.rowCount) {
@@ -53,25 +77,39 @@ export async function openPostgres(url: string, opts: { max?: number } = {}): Pr
   pool.on('error', (e) => console.warn(`Postgres connection dropped: ${e.message}`));
 
   // Always the extended protocol, as PGlite's query() uses: one statement, parameters bound separately.
-  const run = async <T>(c: pg.Pool | pg.PoolClient, sql: string, params: unknown[] = []) => {
+  const run = async <T>(c: pg.PoolClient, sql: string, params: unknown[] = []) => {
     const values = params.map((p) => (typeof p === 'bigint' ? p.toString() : p));
     const r = await c.query({ text: sql, values, queryMode: 'extended' } as pg.QueryConfig);
     return { rows: r.rows as T[], affectedRows: r.rowCount ?? 0 };
   };
+  const connect = () => openWithRetry(() => pool.connect());
+  /** One statement on a pooled connection; a connection the network broke is closed rather than reused. */
+  const onPool = async <T>(use: (c: pg.PoolClient) => Promise<T>): Promise<T> => {
+    const client = await connect();
+    let broken = false;
+    try {
+      return await use(client);
+    } catch (e) {
+      broken = isNetworkError(e);
+      throw e;
+    } finally {
+      client.release(broken);
+    }
+  };
 
   // Array types, as PGlite registers them when it opens.
-  const arrays = await run<{ oid: number; typarray: number }>(pool,
+  const arrays = await onPool((c) => run<{ oid: number; typarray: number }>(c,
     `SELECT b.oid, b.typarray FROM pg_catalog.pg_type a LEFT JOIN pg_catalog.pg_type b ON b.oid = a.typelem
-      WHERE a.typcategory = 'A' GROUP BY b.oid, b.typarray ORDER BY b.oid`);
+      WHERE a.typcategory = 'A' GROUP BY b.oid, b.typarray ORDER BY b.oid`));
   for (const t of arrays.rows) {
     parsers[t.typarray] = (x) => types.arrayParser(x, (el: string) => types.parseType(el, t.oid, parsers), t.typarray);
   }
 
   const db: Database = {
-    query: <T>(sql: string, params?: unknown[]) => run<T>(pool, sql, params),
-    exec: (sql: string) => pool.query(sql),
+    query: <T>(sql: string, params?: unknown[]) => onPool((c) => run<T>(c, sql, params)),
+    exec: (sql: string) => onPool((c) => c.query(sql)),
     async transaction<T>(fn: (tx: Db) => Promise<T>): Promise<T> {
-      const client = await pool.connect();
+      const client = await connect();
       let broken = false;
       try {
         await client.query('BEGIN');
@@ -83,6 +121,7 @@ export async function openPostgres(url: string, opts: { max?: number } = {}): Pr
         await client.query('COMMIT');
         return result;
       } catch (e) {
+        broken = isNetworkError(e);
         await client.query('ROLLBACK').catch(() => { broken = true; });
         throw e;
       } finally {
