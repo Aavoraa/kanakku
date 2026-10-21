@@ -18,9 +18,8 @@ export function AuthScreen({ status, onAuthed }: { status: Status; onAuthed: OnA
           <p className="auth-tag">GST accounting you can type, scan or speak.</p>
         </div>
         {status.demo && (
-          <p className="auth-note"><strong>This is a demo.</strong> Everything entered here is deleted when the demo restarts,
-            which can happen after a few minutes without use, and you may need to create an account again.
-            Do not enter real business or personal details.</p>
+          <p className="auth-note"><strong>This is a demo.</strong> Everything entered here, including accounts, is deleted
+            every night. Do not enter real business or personal details.</p>
         )}
         <div className="auth-tabs" role="tablist">
           <button role="tab" aria-selected={mode === 'login'} className={mode === 'login' ? 'on' : ''} onClick={() => setMode('login')}>Log in</button>

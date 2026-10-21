@@ -1,5 +1,4 @@
-import type { PGlite } from '@electric-sql/pglite';
-import { many, maybeOne, one, type Db } from '../db/client';
+import { many, maybeOne, one, type Db, type Database } from '../db/client';
 import { invalid, notFound } from '../lib/errors';
 import { addDays, daysBetween, todayIST } from '../lib/dates';
 import { toMinor } from '../lib/money';
@@ -97,7 +96,7 @@ export async function complianceSettings(db: Db, companyId: string): Promise<Com
   return (await company(db, companyId)).settings;
 }
 
-export async function updateComplianceSettings(db: PGlite, companyId: string, patch: unknown, userId: string) {
+export async function updateComplianceSettings(db: Database, companyId: string, patch: unknown, userId: string) {
   if (!patch || typeof patch !== 'object') throw invalid('Compliance settings must be an object');
   const before = await complianceSettings(db, companyId);
   const after = parseSettings({ ...before, ...(patch as object) });
@@ -109,7 +108,7 @@ export async function updateComplianceSettings(db: PGlite, companyId: string, pa
 export interface RecordPatch { doneOn?: string | null; reference?: string | null; amount?: string | null; notes?: string | null; dueDate?: string | null }
 
 /** Marks an occurrence filed or paid (with its ARN / challan and amount), extends its due date, or undoes either. */
-export async function saveRecord(db: PGlite, companyId: string, key: string, p: RecordPatch, userId: string) {
+export async function saveRecord(db: Database, companyId: string, key: string, p: RecordPatch, userId: string) {
   if (!KEY_RE.test(key)) throw invalid('Unknown compliance item');
   const date = (v: unknown, label: string) => {
     if (v === undefined) return undefined;
@@ -163,7 +162,7 @@ const REPEATS = new Set(['NONE', 'MONTHLY', 'QUARTERLY', 'YEARLY']);
 
 export interface NewTask { title?: string; category?: string; firstDue?: string; repeat?: string; remindDays?: number | string; notes?: string | null }
 
-export async function createTask(db: PGlite, companyId: string, t: NewTask, userId: string) {
+export async function createTask(db: Database, companyId: string, t: NewTask, userId: string) {
   const title = (t.title ?? '').trim();
   if (!title) throw invalid('Enter what the reminder is for');
   const category = t.category ?? 'OTHER';
@@ -188,7 +187,7 @@ export async function listTasks(db: Db, companyId: string) {
 }
 
 /** Stops a reminder. Its past records stay (kept for the audit trail). */
-export async function deleteTask(db: PGlite, companyId: string, taskId: string, userId: string) {
+export async function deleteTask(db: Database, companyId: string, taskId: string, userId: string) {
   const t = await maybeOne<{ title: string }>(db, `SELECT title FROM compliance_tasks WHERE id = $1 AND company_id = $2 AND active`, [taskId, companyId]);
   if (!t) throw notFound('Reminder');
   await db.query(`UPDATE compliance_tasks SET active = false WHERE id = $1`, [taskId]);

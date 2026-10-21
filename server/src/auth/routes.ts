@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { PGlite } from '@electric-sql/pglite';
 import { AppError } from '../lib/errors';
+import type { Database } from '../db/client';
 import {
   addCompany, addDemo, changePassword, clearCookie, createSession, endSession, isAdmin, isDemoLogin, listSessions, login, memberships, readCookie,
   SESSION_COOKIE, sessionCookie, signOutOthers, signup, updateProfile, type User,
@@ -15,7 +15,7 @@ export function requireUser(req: FastifyRequest): User {
   return req.user;
 }
 
-export function registerAuthRoutes(app: FastifyInstance, db: PGlite) {
+export function registerAuthRoutes(app: FastifyInstance, db: Database) {
   const startSession = async (req: FastifyRequest, reply: FastifyReply, user: User) => {
     const { token, expires } = await createSession(db, user.id, req.headers['user-agent'] ?? null);
     reply.header('Set-Cookie', sessionCookie(token, expires, isHttps(req)));

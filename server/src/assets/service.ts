@@ -1,5 +1,4 @@
-import type { PGlite } from '@electric-sql/pglite';
-import { many, maybeOne, one, type Db } from '../db/client';
+import { many, maybeOne, one, type Db, type Database } from '../db/client';
 import { invalid, notFound } from '../lib/errors';
 import { fromMinor, toMinor } from '../lib/money';
 import { todayIST } from '../lib/dates';
@@ -45,7 +44,7 @@ async function checkLedger(db: Db, companyId: string, ledgerId: string | null | 
   return ledgerId;
 }
 
-export async function createAsset(db: PGlite, companyId: string, a: AssetInput, userId: string) {
+export async function createAsset(db: Database, companyId: string, a: AssetInput, userId: string) {
   const name = text(a.name, 200);
   if (!name) throw invalid('Enter the asset name');
   const row = await one<{ id: string }>(db,
@@ -57,7 +56,7 @@ export async function createAsset(db: PGlite, companyId: string, a: AssetInput, 
   return row;
 }
 
-export async function updateAsset(db: PGlite, companyId: string, assetId: string, a: AssetInput & { active?: boolean }, userId: string) {
+export async function updateAsset(db: Database, companyId: string, assetId: string, a: AssetInput & { active?: boolean }, userId: string) {
   const before = await maybeOne<Record<string, unknown>>(db, `SELECT * FROM assets WHERE id = $1 AND company_id = $2`, [assetId, companyId]);
   if (!before) throw notFound('Asset');
   const name = a.name === undefined ? before.name as string : text(a.name, 200);
@@ -113,7 +112,7 @@ async function asset(db: Db, companyId: string, assetId: string) {
 
 export interface ScheduleInput { kind?: string; title?: string | null; nextDue?: string; repeat?: string; remindDays?: number | string; vendor?: string | null; notes?: string | null }
 
-export async function addSchedule(db: PGlite, companyId: string, assetId: string, s: ScheduleInput, userId: string) {
+export async function addSchedule(db: Database, companyId: string, assetId: string, s: ScheduleInput, userId: string) {
   const a = await asset(db, companyId, assetId);
   if (!a.active) throw invalid('This asset is retired');
   const kind = s.kind ?? 'SERVICE';
@@ -132,7 +131,7 @@ export async function addSchedule(db: PGlite, companyId: string, assetId: string
   return row;
 }
 
-export async function removeSchedule(db: PGlite, companyId: string, scheduleId: string, userId: string) {
+export async function removeSchedule(db: Database, companyId: string, scheduleId: string, userId: string) {
   const s = await maybeOne<{ title: string }>(db, `SELECT title FROM asset_schedules WHERE id = $1 AND company_id = $2 AND active`, [scheduleId, companyId]);
   if (!s) throw notFound('Upkeep schedule');
   await db.query(`UPDATE asset_schedules SET active = false WHERE id = $1`, [scheduleId]);
@@ -148,7 +147,7 @@ export async function assetScheduleRows(db: Db, companyId: string): Promise<Task
 }
 
 const REPAIRS = 'Repairs & Maintenance';
-async function repairsLedger(db: PGlite, companyId: string, userId: string): Promise<string> {
+async function repairsLedger(db: Database, companyId: string, userId: string): Promise<string> {
   const l = await maybeOne<{ id: string }>(db, `SELECT id FROM ledgers WHERE company_id = $1 AND lower(name) = lower($2)`, [companyId, REPAIRS]);
   if (l) return l.id;
   const group = await groupByCode(db, companyId, 'INDIRECT_EXPENSES');
@@ -168,7 +167,7 @@ export interface LogInput {
 }
 
 /** Records a repair or service; can post its cost (GST included) and tick off the calendar reminder it settles. */
-export async function logUpkeep(db: PGlite, companyId: string, assetId: string, g: LogInput, opts: { idempotencyKey: string; userId: string }) {
+export async function logUpkeep(db: Database, companyId: string, assetId: string, g: LogInput, opts: { idempotencyKey: string; userId: string }) {
   const a = await asset(db, companyId, assetId);
   const date = optDate(g.date, 'Date');
   if (!date) throw invalid('Enter the date');

@@ -1,5 +1,4 @@
-import type { PGlite } from '@electric-sql/pglite';
-import { one } from './client';
+import { one, type Database } from './client';
 import { addDays, fyStart, todayIST } from '../lib/dates';
 import { makeGstin } from '../lib/gstin';
 import { createCompany, createItem, createLedger, createParty, groupByCode, setOpeningBalance } from '../ledger/masters';
@@ -10,7 +9,7 @@ import { config } from '../config';
 export const DEMO_COMPANY_NAME = 'Sharma Building Supplies';
 
 /** Seeds a small building-materials trader with ~3 months of activity, dated relative to today. */
-export async function seedDemo(db: PGlite): Promise<string> {
+export async function seedDemo(db: Database): Promise<string> {
   const today = todayIST();
   const d = (n: number) => addDays(today, -n);
   const user = config.localUserId;

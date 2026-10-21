@@ -2,8 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import Decimal from 'decimal.js';
-import type { PGlite } from '@electric-sql/pglite';
-import { many, maybeOne, one, type Db } from '../db/client';
+import { many, maybeOne, one, type Db, type Database } from '../db/client';
 import { config } from '../config';
 import { AppError, notFound } from '../lib/errors';
 import { addDays, shortDate, todayIST } from '../lib/dates';
@@ -39,7 +38,9 @@ export interface DocOptions {
   date?: string | null;            // fallback date for workings without one
 }
 
-export async function ingestDocument(db: PGlite, companyId: string, file: { name: string; mime: string; data: Buffer }, uploadedBy: string, options: DocOptions = {}) {
+export async function ingestDocument(db: Database, companyId: string, file: { name: string; mime: string; data: Buffer }, uploadedBy: string, options: DocOptions = {}) {
+  // Files are kept on the server's disk and read in the background, and the demo's servers have neither.
+  if (config.demo) throw new AppError('DEMO', 403, 'Uploading documents is not available on the online demo. Install Kannaku AI on your computer to try it.');
   const { mime } = classifyFile(file.name, file.mime);
   if (file.data.length > MAX_BYTES) throw new AppError('FILE_TOO_LARGE', 413, 'Files must be under 20 MB');
   const sha = crypto.createHash('sha256').update(file.data).digest('hex');
@@ -65,14 +66,14 @@ const CONCURRENCY = 2;
 /** Documents queued or being read; a document is never in the queue twice. */
 const active = new Set<string>();
 
-export function enqueue(db: PGlite, documentId: string) {
+export function enqueue(db: Database, documentId: string) {
   if (active.has(documentId)) return;
   active.add(documentId);
   queue.push(documentId);
   pump(db);
 }
 
-function pump(db: PGlite) {
+function pump(db: Database) {
   while (running < CONCURRENCY && queue.length) {
     const id = queue.shift()!;
     running++;
@@ -82,7 +83,7 @@ function pump(db: PGlite) {
   }
 }
 
-export async function resumePending(db: PGlite) {
+export async function resumePending(db: Database) {
   const pending = await many<{ id: string }>(db, `SELECT id FROM documents WHERE status IN ('RECEIVED','PROCESSING') ORDER BY created_at`);
   for (const d of pending) enqueue(db, d.id);
 }
@@ -92,7 +93,7 @@ interface DocRow { id: string; company_id: string; file_name: string; storage_ke
 const kindOf = (mime: string): FileKind =>
   mime === 'text/csv' ? 'csv' : mime.includes('spreadsheetml') ? 'sheet' : mime === 'application/pdf' ? 'pdf' : 'image';
 
-export async function processDocument(db: PGlite, documentId: string) {
+export async function processDocument(db: Database, documentId: string) {
   const doc = await one<DocRow>(db,
     `SELECT id, company_id, file_name, storage_key, mime, uploaded_by, options FROM documents WHERE id = $1`, [documentId]);
   await db.query(`UPDATE documents SET status = 'PROCESSING', error = NULL, updated_at = now() WHERE id = $1`, [documentId]);
@@ -139,7 +140,7 @@ async function detectType(data: Buffer, mime: string, ctx: LedgerContext): Promi
 }
 
 // ---------------------------------------------------------------- Spreadsheets (no AI needed)
-async function processSpreadsheet(db: PGlite, ctx: LedgerContext, doc: DocRow, data: Buffer, kind: 'sheet' | 'csv', opts: DocOptions, userId: string) {
+async function processSpreadsheet(db: Database, ctx: LedgerContext, doc: DocRow, data: Buffer, kind: 'sheet' | 'csv', opts: DocOptions, userId: string) {
   const sheets = await readSheets(data, kind);
   const proposals: Proposal[] = [];
   const found: { sheet: string; kind: string; rows: number }[] = [];
@@ -188,7 +189,7 @@ async function processSpreadsheet(db: PGlite, ctx: LedgerContext, doc: DocRow, d
   await saveAndFinish(db, ctx, doc, proposals, docType, { kind: docType, sheets: found }, userId);
 }
 
-async function saveAndFinish(db: PGlite, ctx: LedgerContext, doc: DocRow, proposals: Proposal[], docType: string, summary: Record<string, unknown>, userId: string, bankLedgerId: string | null = null) {
+async function saveAndFinish(db: Database, ctx: LedgerContext, doc: DocRow, proposals: Proposal[], docType: string, summary: Record<string, unknown>, userId: string, bankLedgerId: string | null = null) {
   await saveProposals(db, ctx.company.id, doc.id, proposals);
   await db.query(`UPDATE documents SET status = 'NEEDS_REVIEW', doc_type = $2, summary = $3, bank_ledger_id = $4, model = $5, updated_at = now() WHERE id = $1`,
     [doc.id, docType, JSON.stringify(summary, bigintJson), bankLedgerId, config.aiEnabled ? config.model : null]);
@@ -219,7 +220,7 @@ function statementFromExtract(x: Awaited<ReturnType<typeof extractStatement>>): 
 }
 
 /** Which bank ledger the statement belongs to; creates one when the bank is new to the books. */
-async function resolveBankLedger(db: PGlite, ctx: LedgerContext, st: Statement, opts: DocOptions): Promise<{ id: string; name: string; created: boolean; note: string | null }> {
+async function resolveBankLedger(db: Database, ctx: LedgerContext, st: Statement, opts: DocOptions): Promise<{ id: string; name: string; created: boolean; note: string | null }> {
   if (opts.bankLedgerId && ctx.isCashBank(opts.bankLedgerId)) return { id: opts.bankLedgerId, name: ctx.ledger(opts.bankLedgerId).name, created: false, note: null };
   const banks = ctx.bankLedgers();
   const bankWord = st.bankName ? normName(st.bankName).split(' ').find((w) => w.length > 2 && w !== 'bank') ?? null : null;
@@ -238,7 +239,7 @@ async function resolveBankLedger(db: PGlite, ctx: LedgerContext, st: Statement, 
   return { id: banks[0].id, name: banks[0].name, created: false, note: `Several bank accounts exist; assumed "${banks[0].name}". Change it above if that is wrong.` };
 }
 
-async function finishStatement(db: PGlite, ctx0: LedgerContext, doc: DocRow, st: Statement, opts: DocOptions, userId: string, docType: string, sheets?: unknown) {
+async function finishStatement(db: Database, ctx0: LedgerContext, doc: DocRow, st: Statement, opts: DocOptions, userId: string, docType: string, sheets?: unknown) {
   if (!st.lines.length) throw new AppError('EMPTY_STATEMENT', 422, 'No transactions were found in this statement.');
   const bank = await resolveBankLedger(db, ctx0, st, opts);
   const ctx = await LedgerContext.load(db, ctx0.company.id);    // includes a just-created bank ledger
@@ -260,7 +261,7 @@ async function finishStatement(db: PGlite, ctx0: LedgerContext, doc: DocRow, st:
 }
 
 /** Lines the rules couldn't place go to the model, which may only choose from the books' own accounts. */
-async function aiClassifyLeftovers(db: PGlite, ctx: LedgerContext, bankLedgerId: string, st: Statement, proposals: Proposal[]) {
+async function aiClassifyLeftovers(db: Database, ctx: LedgerContext, bankLedgerId: string, st: Statement, proposals: Proposal[]) {
   const open = proposals.filter((p) => p.status === 'NEEDS_INPUT' && !p.payload);
   if (!open.length) return;
   const ledgers = await many<{ id: string; name: string; group: string; counterparty_id: string | null }>(db,
@@ -298,7 +299,7 @@ async function aiClassifyLeftovers(db: PGlite, ctx: LedgerContext, bankLedgerId:
 }
 
 // ---------------------------------------------------------------- Workings (AI)
-async function finishWorkings(db: PGlite, ctx: LedgerContext, doc: DocRow, content: unknown[], opts: DocOptions, userId: string) {
+async function finishWorkings(db: Database, ctx: LedgerContext, doc: DocRow, content: unknown[], opts: DocOptions, userId: string) {
   const ledgers = await many<{ id: string; name: string; group: string }>(db,
     `SELECT l.id, l.name, g.name AS "group" FROM ledgers l JOIN ledger_groups g ON g.id = l.group_id
       WHERE l.company_id = $1 AND l.is_active AND l.tax_component IS NULL ORDER BY l.name LIMIT 400`, [ctx.company.id]);
@@ -332,7 +333,7 @@ const BILL_MAP: Record<string, { type: BaseType; partyBlock: 'supplier' | 'buyer
   DEBIT_NOTE_ISSUED: { type: 'DEBIT_NOTE', partyBlock: 'buyer', role: 'issued' },
 };
 
-async function processBill(db: PGlite, ctx: LedgerContext, doc: DocRow, data: Buffer, type: DocType, userId: string) {
+async function processBill(db: Database, ctx: LedgerContext, doc: DocRow, data: Buffer, type: DocType, userId: string) {
   const map = BILL_MAP[type] ?? BILL_MAP.PURCHASE_BILL;
   const bill = await extractBill(data, doc.mime as BillMedia, ctx.company, null, map.role);
   const review = await buildReview(db, ctx, bill, type);
@@ -347,7 +348,7 @@ async function processBill(db: PGlite, ctx: LedgerContext, doc: DocRow, data: Bu
 }
 
 /** Auto-post for a single bill: switched on, party known, every check clean, totals agree, under the limit. */
-async function autoAcceptBill(db: PGlite, ctx: LedgerContext, documentId: string, review: Awaited<ReturnType<typeof buildReview>>, userId: string) {
+async function autoAcceptBill(db: Database, ctx: LedgerContext, documentId: string, review: Awaited<ReturnType<typeof buildReview>>, userId: string) {
   const c = await one<{ auto_post: boolean; auto_post_limit_minor: bigint }>(db, `SELECT auto_post, auto_post_limit_minor FROM companies WHERE id = $1`, [ctx.company.id]);
   if (!c.auto_post || !review.draft.counterpartyId) return;
   if (review.issues.some((i) => i.severity !== 'info')) return;
@@ -367,7 +368,7 @@ interface Matches {
 }
 
 /** Turns an extraction into a draft (purchase or sales side) + validation issues + match explanations. */
-export async function buildReview(db: PGlite, ctx: LedgerContext, bill: ParsedBill, docType: DocType | string = 'PURCHASE_BILL') {
+export async function buildReview(db: Database, ctx: LedgerContext, bill: ParsedBill, docType: DocType | string = 'PURCHASE_BILL') {
   const map = BILL_MAP[docType] ?? (bill.document_type === 'CREDIT_NOTE' ? BILL_MAP.CREDIT_NOTE_RECEIVED : BILL_MAP.PURCHASE_BILL);
   const salesSide = map.type === 'SALES' || map.type === 'CREDIT_NOTE';
   const partyBlock = map.partyBlock === 'buyer' ? bill.buyer : bill.supplier;
@@ -468,7 +469,7 @@ function lineRate(l: ParsedBill['line_items'][number], taxable: Decimal): string
   return '0';
 }
 
-export async function acceptDocument(db: PGlite, companyId: string, documentId: string, body: { draft: VoucherInputRaw; newParty?: NewParty | null; confirmWarnings?: boolean }, userId: string) {
+export async function acceptDocument(db: Database, companyId: string, documentId: string, body: { draft: VoucherInputRaw; newParty?: NewParty | null; confirmWarnings?: boolean }, userId: string) {
   const doc = await maybeOne<{ id: string; status: string; draft_id: string | null; extraction: ParsedBill | null; doc_type: string | null }>(db,
     `SELECT id, status, draft_id, extraction, doc_type FROM documents WHERE id = $1 AND company_id = $2`, [documentId, companyId]);
   if (!doc) throw notFound('Document');
@@ -510,7 +511,7 @@ export async function liveKey(db: Db, companyId: string, base: string): Promise<
   return used.length ? `${base}:redo${used.length}` : base;
 }
 
-export async function rejectDocument(db: PGlite, companyId: string, documentId: string) {
+export async function rejectDocument(db: Database, companyId: string, documentId: string) {
   const doc = await maybeOne<{ draft_id: string | null; status: string }>(db, `SELECT draft_id, status FROM documents WHERE id = $1 AND company_id = $2`, [documentId, companyId]);
   if (!doc) throw notFound('Document');
   if (doc.status === 'ACCEPTED') throw new AppError('ALREADY_ACCEPTED', 409, 'Posted entries must be reversed from the Day Book');
@@ -520,7 +521,7 @@ export async function rejectDocument(db: PGlite, companyId: string, documentId: 
 }
 
 /** Re-run a document with new choices (bank account, register type, forced document type). Posted lines are kept. */
-export async function reprocessDocument(db: PGlite, companyId: string, documentId: string, options: DocOptions) {
+export async function reprocessDocument(db: Database, companyId: string, documentId: string, options: DocOptions) {
   const doc = await maybeOne<{ options: DocOptions; status: string; voucher_id: string | null }>(db,
     `SELECT options, status, voucher_id FROM documents WHERE id = $1 AND company_id = $2`, [documentId, companyId]);
   if (!doc) throw notFound('Document');
@@ -535,7 +536,7 @@ export async function reprocessDocument(db: PGlite, companyId: string, documentI
 }
 
 /** Deletes a document, its unposted entries and its file. Refused while anything posted from it is still live in the books. */
-export async function deleteDocument(db: PGlite, companyId: string, documentId: string, userId: string) {
+export async function deleteDocument(db: Database, companyId: string, documentId: string, userId: string) {
   const doc = await maybeOne<{ status: string; file_name: string; storage_key: string; draft_id: string | null }>(db,
     `SELECT status, file_name, storage_key, draft_id FROM documents WHERE id = $1 AND company_id = $2`, [documentId, companyId]);
   if (!doc) throw notFound('Document');

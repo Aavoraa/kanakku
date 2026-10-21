@@ -1,10 +1,10 @@
-import type { PGlite } from '@electric-sql/pglite';
 import { AppError, invalid } from '../lib/errors';
 import { DEC_RE } from '../lib/money';
 import { LedgerContext } from './context';
 import type { VoucherInputRaw } from './contracts';
 import { postVoucher, previewVoucher, type PostedVoucher, type Source } from './post';
 import type { Warning } from './plan';
+import type { Database } from '../db/client';
 
 /** One expense paid from cash, bank or petty cash: a petty voucher, a repair bill, a small purchase. */
 export interface ExpenseInput {
@@ -57,7 +57,7 @@ export function expenseVoucher(ctx: LedgerContext, e: ExpenseInput): VoucherInpu
  * and must be confirmed together; nothing is posted until they are.
  */
 export async function postExpense(
-  db: PGlite, companyId: string, e: ExpenseInput,
+  db: Database, companyId: string, e: ExpenseInput,
   opts: { idempotencyKey: string; userId: string; source?: Source; confirmWarnings?: boolean; extraWarnings?: Warning[] },
 ): Promise<PostedVoucher> {
   const ctx = await LedgerContext.load(db, companyId);

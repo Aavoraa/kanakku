@@ -1,6 +1,5 @@
 import crypto from 'node:crypto';
-import type { PGlite } from '@electric-sql/pglite';
-import { many, maybeOne, one, type Db } from '../db/client';
+import { many, maybeOne, one, type Db, type Database } from '../db/client';
 import { AppError, invalid, notFound } from '../lib/errors';
 import { addDays, fyStart } from '../lib/dates';
 import { isValidGstin, gstinPan, gstinState } from '../lib/gstin';
@@ -69,7 +68,7 @@ export interface NewCompany {
   booksFrom: string;
 }
 
-export async function createCompany(db: PGlite, c: NewCompany): Promise<string> {
+export async function createCompany(db: Database, c: NewCompany): Promise<string> {
   if (c.gstin && !isValidGstin(c.gstin)) throw invalid('GSTIN is not valid');
   return db.transaction(async (tx) => {
     const company = await one<{ id: string }>(tx,
@@ -119,7 +118,7 @@ export async function createGroup(db: Db, companyId: string, g: { name: string; 
     [companyId, g.parentId, g.name, parent.nature, parent.affects_gross_profit, `${parent.path}.${label}`]);
 }
 
-export async function createLedger(db: PGlite, companyId: string, l: {
+export async function createLedger(db: Database, companyId: string, l: {
   name: string; groupId: string; openingBalance?: string | null; openingSide?: 'DR' | 'CR'; billWise?: boolean;
 }, userId: string) {
   const name = l.name.trim();
@@ -152,7 +151,7 @@ export interface NewParty {
 
 export const REG_TYPES = new Set(['REGULAR', 'COMPOSITION', 'UNREGISTERED', 'CONSUMER', 'SEZ', 'OVERSEAS']);
 
-export async function createParty(db: PGlite, companyId: string, p: NewParty, userId: string, channel = 'MANUAL') {
+export async function createParty(db: Database, companyId: string, p: NewParty, userId: string, channel = 'MANUAL') {
   const name = p.name.trim();
   if (!name) throw invalid('Party name is required');
   const gstin = p.gstin?.trim().toUpperCase() || null;
@@ -187,7 +186,7 @@ export async function createParty(db: PGlite, companyId: string, p: NewParty, us
 }
 
 /** Posts an Opening Balance voucher for the difference between the current and target opening. */
-export async function setOpeningBalance(db: PGlite, companyId: string, ledgerId: string, targetMinor: bigint, userId: string) {
+export async function setOpeningBalance(db: Database, companyId: string, ledgerId: string, targetMinor: bigint, userId: string) {
   const company = await one<{ books_from: string }>(db, `SELECT books_from::text FROM companies WHERE id = $1`, [companyId]);
   const current = await one<{ s: bigint | null }>(db,
     `SELECT SUM(e.amount_minor) AS s FROM ledger_entries e JOIN vouchers v ON v.id = e.voucher_id

@@ -1,8 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import type { PGlite } from '@electric-sql/pglite';
-import { many, maybeOne, one } from '../db/client';
+import { many, maybeOne, one, type Database } from '../db/client';
 import { config } from '../config';
 import { AppError, invalid, notFound } from '../lib/errors';
 import { addDays, daysBetween, fyStart, todayIST } from '../lib/dates';
@@ -42,7 +41,7 @@ const date = (v: string | undefined, fallback: string) => {
   return d;
 };
 
-export function registerRoutes(app: FastifyInstance, db: PGlite) {
+export function registerRoutes(app: FastifyInstance, db: Database) {
   /** The logged-in user (the onRequest hook has already rejected anonymous calls). */
   const uid = (req: Req) => requireUser(req).id;
 

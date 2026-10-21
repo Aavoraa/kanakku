@@ -241,7 +241,13 @@ describe('workings and registers (Excel/CSV, no AI)', () => {
     const csv = Buffer.from(['Purchase Register', 'Bill No,Bill Date,Supplier Name,GSTIN,Taxable Value,CGST,SGST,Total',
       `SBC/0999,${dmy(d(1))},Shree Balaji Cement Agency,${makeGstin('27', 'AAPFB1234C')},1000,90,90,1180`].join('\n'));
     const r = await upload('purchase-register.csv', 'text/csv', csv);
-    expect(r.status).toBe('ACCEPTED');
+    // The document shows NEEDS_REVIEW until auto-posting finishes, so wait for it to settle.
+    let status = r.status;
+    for (let i = 0; i < 100 && status === 'NEEDS_REVIEW'; i++) {
+      await new Promise((res) => setTimeout(res, 50));
+      status = (await one<{ status: string }>(db, `SELECT status FROM documents WHERE id = $1`, [r.id])).status;
+    }
+    expect(status).toBe('ACCEPTED');
     expect((await entries(r.id))[0].status).toBe('POSTED');
     await db.query(`UPDATE companies SET auto_post = false WHERE id = $1`, [companyId]);
   });

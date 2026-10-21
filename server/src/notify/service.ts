@@ -1,6 +1,5 @@
 import nodemailer from 'nodemailer';
-import type { PGlite } from '@electric-sql/pglite';
-import { many, maybeOne, one, type Db } from '../db/client';
+import { many, maybeOne, one, type Db, type Database } from '../db/client';
 import { AppError, invalid } from '../lib/errors';
 import { formatINR } from '../lib/money';
 import { shortDate, todayIST } from '../lib/dates';
@@ -88,7 +87,7 @@ function assertPublicHttps(url: string) {
 }
 
 /** Saves settings. A blank password, token or SMS link keeps the one already saved. */
-export async function saveConfig(db: PGlite, companyId: string, patch: Record<string, any>, userId: string) { // eslint-disable-line @typescript-eslint/no-explicit-any
+export async function saveConfig(db: Database, companyId: string, patch: Record<string, any>, userId: string) { // eslint-disable-line @typescript-eslint/no-explicit-any
   const cur = await loadConfig(db, companyId);
   const p = patch ?? {};
   const next = merge({

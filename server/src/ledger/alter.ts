@@ -1,5 +1,4 @@
-import type { PGlite } from '@electric-sql/pglite';
-import { maybeOne, one, type Db } from '../db/client';
+import { maybeOne, one, type Db, type Database } from '../db/client';
 import { AppError, invalid, notFound } from '../lib/errors';
 import { isValidGstin, gstinPan, gstinState } from '../lib/gstin';
 import { fromMinor, percentToPpm } from '../lib/money';
@@ -27,7 +26,7 @@ async function assertLedgerNameFree(db: Db, companyId: string, name: string, exc
 
 export interface LedgerPatch { name?: string; groupId?: string; active?: boolean }
 
-export async function updateLedger(db: PGlite, companyId: string, ledgerId: string, p: LedgerPatch, userId: string) {
+export async function updateLedger(db: Database, companyId: string, ledgerId: string, p: LedgerPatch, userId: string) {
   const l = await maybeOne<{ id: string; name: string; group_id: string; is_active: boolean; system_code: string | null; tax_component: string | null; counterparty_id: string | null }>(db,
     `SELECT id, name, group_id, is_active, system_code, tax_component, counterparty_id FROM ledgers WHERE id = $1 AND company_id = $2`, [ledgerId, companyId]);
   if (!l) throw notFound('Ledger');
@@ -69,7 +68,7 @@ export interface PartyPatch {
   creditDays?: number | string | null; regType?: string | null; active?: boolean;
 }
 
-export async function updateParty(db: PGlite, companyId: string, partyId: string, p: PartyPatch, userId: string) {
+export async function updateParty(db: Database, companyId: string, partyId: string, p: PartyPatch, userId: string) {
   const cp = await maybeOne<{ legal_name: string; gstin: string | null; state_code: string | null; city: string | null; phone: string | null; credit_days: number | null; gst_reg_type: string; status: string }>(db,
     `SELECT legal_name, gstin, state_code, city, phone, credit_days, gst_reg_type, status FROM counterparties WHERE id = $1 AND company_id = $2`, [partyId, companyId]);
   if (!cp) throw notFound('Party');
@@ -129,7 +128,7 @@ export async function updateParty(db: PGlite, companyId: string, partyId: string
 
 export interface ItemPatch { name?: string; hsnSac?: string | null; gstRate?: string | null; uomId?: string; valuation?: 'FIFO' | 'WAVG'; allowNegative?: boolean; active?: boolean }
 
-export async function updateItem(db: PGlite, companyId: string, itemId: string, p: ItemPatch, userId: string) {
+export async function updateItem(db: Database, companyId: string, itemId: string, p: ItemPatch, userId: string) {
   const it = await maybeOne<{ name: string; hsn_sac: string | null; gst_rate_ppm: number | null; base_uom_id: string; valuation: string; allow_negative: boolean; is_active: boolean }>(db,
     `SELECT name, hsn_sac, gst_rate_ppm, base_uom_id, valuation, allow_negative, is_active FROM stock_items WHERE id = $1 AND company_id = $2`, [itemId, companyId]);
   if (!it) throw notFound('Stock item');
@@ -171,7 +170,7 @@ export async function updateItem(db: PGlite, companyId: string, itemId: string, 
 }
 
 /** Renames a group the company created (the 28 standard groups keep their names). */
-export async function renameGroup(db: PGlite, companyId: string, groupId: string, nameRaw: unknown, userId: string) {
+export async function renameGroup(db: Database, companyId: string, groupId: string, nameRaw: unknown, userId: string) {
   const g = await maybeOne<{ name: string; system_code: string | null }>(db, `SELECT name, system_code FROM ledger_groups WHERE id = $1 AND company_id = $2`, [groupId, companyId]);
   if (!g) throw notFound('Group');
   if (g.system_code) throw invalid(`${g.name} is a standard group and keeps its name`);

@@ -1,12 +1,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PGlite, types, type Transaction } from '@electric-sql/pglite';
+import { PGlite, types } from '@electric-sql/pglite';
 import { ltree } from '@electric-sql/pglite/contrib/ltree';
 import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 
 /** Anything we can run queries on: the database or an open transaction. */
-export type Db = PGlite | Transaction;
+export interface Db {
+  query<T>(sql: string, params?: unknown[]): Promise<{ rows: T[]; affectedRows?: number }>;
+  exec(sql: string): Promise<unknown>;
+}
+
+/** The database: PGlite on this computer, or Postgres for the online demo (db/postgres.ts). */
+export interface Database extends Db {
+  transaction<T>(fn: (tx: Db) => Promise<T>): Promise<T>;
+  close(): Promise<void>;
+}
 
 const MIGRATIONS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'migrations');
 
@@ -72,20 +81,31 @@ function lockDataDir(dataDir: string): () => void {
   return release;
 }
 
-async function migrate(db: PGlite) {
-  await db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`);
-  const applied = new Set(
-    (await db.query<{ name: string }>('SELECT name FROM schema_migrations')).rows.map((r) => r.name),
-  );
-  const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
-  for (const file of files) {
+export async function migrate(db: Database) {
+  const exists = await db.query<{ t: string | null }>(`SELECT to_regclass('schema_migrations')::text AS t`);
+  const applied = new Set(exists.rows[0].t
+    ? (await db.query<{ name: string }>('SELECT name FROM schema_migrations')).rows.map((r) => r.name)
+    : []);
+  for (const file of migrationFiles()) {
     if (applied.has(file)) continue;
-    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8');
+    // Checked again inside the transaction: on Postgres several servers can start at once, and the
+    // transaction's lock (db/postgres.ts) lets only one of them apply each file.
     await db.transaction(async (tx) => {
-      await tx.exec(sql);
-      await tx.query('INSERT INTO schema_migrations (name) VALUES ($1)', [file]);
+      await tx.exec(MIGRATIONS_TABLE);
+      if ((await tx.query('SELECT 1 FROM schema_migrations WHERE name = $1', [file])).rows.length) return;
+      await applyMigration(tx, file);
     });
   }
+}
+
+export const MIGRATIONS_TABLE = `CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`;
+
+export const migrationFiles = () => fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
+
+/** Runs one migration file on an open transaction and records it (schema_migrations must exist). */
+export async function applyMigration(tx: Db, file: string) {
+  await tx.exec(fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8'));
+  await tx.query('INSERT INTO schema_migrations (name) VALUES ($1)', [file]);
 }
 
 export async function one<T>(db: Db, sql: string, params: unknown[] = []): Promise<T> {

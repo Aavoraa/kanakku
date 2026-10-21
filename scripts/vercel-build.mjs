@@ -25,7 +25,8 @@ await build({
   target: 'node24',
   format: 'esm',
   // PGlite loads its .wasm and extension files from its own folder, so it is copied in whole below.
-  external: ['@electric-sql/pglite'],
+  // pg-native is pg's optional C binding, never used.
+  external: ['@electric-sql/pglite', 'pg-native'],
   // Bundled CommonJS packages call require(), which an ES module does not have on its own.
   banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" },
   logLevel: 'warning',

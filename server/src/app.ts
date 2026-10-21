@@ -2,13 +2,13 @@ import fs from 'node:fs';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
-import type { PGlite } from '@electric-sql/pglite';
 import { config } from './config';
 import { AppError } from './lib/errors';
 import { bigintJson } from './ledger/post';
 import { registerRoutes } from './api/routes';
 import { registerAuthRoutes } from './auth/routes';
 import { readCookie, SESSION_COOKIE, userForToken, type User } from './auth/auth';
+import type { Database } from './db/client';
 
 declare module 'fastify' {
   interface FastifyRequest { user: User | null }
@@ -17,7 +17,7 @@ declare module 'fastify' {
 /** Routes anyone may call without logging in. */
 const PUBLIC = [/^\/api\/v1\/status$/, /^\/api\/v1\/auth\/(signup|login|logout|me)$/];
 
-export async function buildApp(db: PGlite, opts: { serveWeb?: boolean } = {}): Promise<FastifyInstance> {
+export async function buildApp(db: Database, opts: { serveWeb?: boolean } = {}): Promise<FastifyInstance> {
   // Behind Vercel's proxy, trust X-Forwarded-Proto so the session cookie is marked Secure.
   const app = Fastify({ logger: { level: 'warn' }, bodyLimit: 5 * 1024 * 1024, trustProxy: config.demo });
   // BigInt (paise) serialises as a string; the client never sees a float amount.

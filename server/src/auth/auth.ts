@@ -1,7 +1,6 @@
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
-import type { PGlite } from '@electric-sql/pglite';
-import { many, maybeOne, one, type Db } from '../db/client';
+import { many, maybeOne, one, type Db, type Database } from '../db/client';
 import { AppError, invalid } from '../lib/errors';
 import { isValidGstin, gstinState, STATES } from '../lib/gstin';
 import { fyStart, todayIST } from '../lib/dates';
@@ -126,7 +125,7 @@ export interface SignupInput {
 }
 
 /** Creates the account and its first company. The first account on a server also takes over books created before accounts existed. */
-export async function signup(db: PGlite, s: SignupInput): Promise<{ user: User; companyId: string }> {
+export async function signup(db: Database, s: SignupInput): Promise<{ user: User; companyId: string }> {
   const email = s.email?.trim().toLowerCase() ?? '';
   if (!s.name?.trim()) throw invalid('Enter your name');
   if (!EMAIL_RE.test(email)) throw invalid('Enter a valid email address');
@@ -154,7 +153,7 @@ export async function signup(db: PGlite, s: SignupInput): Promise<{ user: User; 
   return { user, companyId: created.id };
 }
 
-export async function addCompany(db: PGlite, userId: string, details: CompanyDetails) {
+export async function addCompany(db: Database, userId: string, details: CompanyDetails) {
   const c = validateCompany(details);
   const id = await createCompany(db, c);
   await db.query(`INSERT INTO company_members (company_id, user_id, role) VALUES ($1,$2,'OWNER')`, [id, userId]);
@@ -162,7 +161,7 @@ export async function addCompany(db: PGlite, userId: string, details: CompanyDet
 }
 
 /** Adds the sample company, unless this user already has it. */
-export async function addDemo(db: PGlite, userId: string) {
+export async function addDemo(db: Database, userId: string) {
   const has = await maybeOne(db,
     `SELECT 1 FROM company_members m JOIN companies c ON c.id = m.company_id WHERE m.user_id = $1 AND c.name = $2`, [userId, DEMO_COMPANY_NAME]);
   if (has) return;
@@ -170,11 +169,16 @@ export async function addDemo(db: PGlite, userId: string) {
   await db.query(`INSERT INTO company_members (company_id, user_id, role) VALUES ($1,$2,'OWNER')`, [id, userId]);
 }
 
-/** Creates the demo's shared login, owning the sample company. */
-export async function createDemoLogin(db: PGlite, demoLogin: { email: string; password: string }) {
-  const user = await one<{ id: string }>(db,
-    `INSERT INTO users (email, name, password_hash) VALUES ($1, 'Demo user', $2) RETURNING id`,
+/**
+ * Creates the demo's shared login, owning the sample company, unless it exists. Servers starting together on the
+ * demo's shared database can both try: only the one whose insert lands seeds the company.
+ */
+export async function createDemoLogin(db: Database, demoLogin: { email: string; password: string }) {
+  if (await maybeOne(db, `SELECT 1 FROM users WHERE email = $1`, [demoLogin.email])) return;
+  const user = await maybeOne<{ id: string }>(db,
+    `INSERT INTO users (email, name, password_hash) VALUES ($1, 'Demo user', $2) ON CONFLICT (email) DO NOTHING RETURNING id`,
     [demoLogin.email, await hashPassword(demoLogin.password)]);
+  if (!user) return;
   await addDemo(db, user.id);
 }
 

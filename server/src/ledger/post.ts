@@ -1,7 +1,6 @@
 import crypto from 'node:crypto';
 import Decimal from 'decimal.js';
-import type { PGlite } from '@electric-sql/pglite';
-import { many, maybeOne, one, type Db } from '../db/client';
+import { many, maybeOne, one, type Db, type Database } from '../db/client';
 import { AppError, invalid, notFound } from '../lib/errors';
 import { fiscalYear, todayIST } from '../lib/dates';
 import { qtyOnHand } from '../inventory/stock';
@@ -38,7 +37,7 @@ export function parseInput(raw: unknown): VoucherInput {
 }
 
 /** Validate + compute without writing anything (tax ledgers created on the fly are rolled back). */
-export async function previewVoucher(db: PGlite, companyId: string, raw: VoucherInputRaw | unknown) {
+export async function previewVoucher(db: Database, companyId: string, raw: VoucherInputRaw | unknown) {
   const input = parseInput(raw);
   let result: Awaited<ReturnType<typeof describePlan>> | null = null;
   const ROLLBACK = new Error('preview-rollback');
@@ -74,7 +73,7 @@ export function describePlan(ctx: LedgerContext, plan: Plan) {
   };
 }
 
-export async function postVoucher(db: PGlite, companyId: string, raw: unknown, opts: PostOptions): Promise<PostedVoucher> {
+export async function postVoucher(db: Database, companyId: string, raw: unknown, opts: PostOptions): Promise<PostedVoucher> {
   const input = parseInput(raw);
   return db.transaction((tx) => postInTx(tx, companyId, input, opts));
 }
@@ -358,7 +357,7 @@ export const bigintJson = (_k: string, v: unknown) => (typeof v === 'bigint' ? v
 /** Posts the mirror image of a voucher. The original stays; reports net the two to zero. */
 type ReverseOptions = { userId: string; source: Source; date?: string; idempotencyKey?: string; skipStockCheck?: boolean };
 
-export async function reverseVoucher(db: PGlite, companyId: string, voucherId: string, opts: ReverseOptions): Promise<PostedVoucher> {
+export async function reverseVoucher(db: Database, companyId: string, voucherId: string, opts: ReverseOptions): Promise<PostedVoucher> {
   return db.transaction((tx) => reverseInTx(tx, companyId, voucherId, opts));
 }
 
@@ -464,7 +463,7 @@ export async function audit(db: Db, companyId: string, actor: string, channel: s
 }
 
 /** Alter = reverse the original and post the corrected voucher, atomically. */
-export async function alterVoucher(db: PGlite, companyId: string, voucherId: string, raw: unknown, opts: PostOptions) {
+export async function alterVoucher(db: Database, companyId: string, voucherId: string, raw: unknown, opts: PostOptions) {
   const input = parseInput(raw);
   return db.transaction(async (tx) => {
     const reversal = await reverseInTx(tx, companyId, voucherId, { userId: opts.userId, source: opts.source, idempotencyKey: `alter-reverse:${opts.idempotencyKey}`, skipStockCheck: true });

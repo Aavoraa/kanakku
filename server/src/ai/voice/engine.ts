@@ -1,8 +1,7 @@
 import crypto from 'node:crypto';
 import Decimal from 'decimal.js';
-import type { PGlite } from '@electric-sql/pglite';
 import type Anthropic from '@anthropic-ai/sdk';
-import { maybeOne, one, type Db } from '../../db/client';
+import { maybeOne, one, type Db, type Database } from '../../db/client';
 import { config } from '../../config';
 import { AppError } from '../../lib/errors';
 import { daysBetween, fyStart, resolvePeriod, todayIST, type PeriodName } from '../../lib/dates';
@@ -76,9 +75,9 @@ interface Session {
 }
 
 /** Per-turn state shared by the handlers. */
-interface Turn { db: PGlite; ctx: LedgerContext; s: Session; lang: Lang; T: Messages; transcripts: string[]; userId: string }
+interface Turn { db: Database; ctx: LedgerContext; s: Session; lang: Lang; T: Messages; transcripts: string[]; userId: string }
 
-export async function handleUtterance(db: PGlite, companyId: string, req: VoiceRequest): Promise<VoiceResponse> {
+export async function handleUtterance(db: Database, companyId: string, req: VoiceRequest): Promise<VoiceResponse> {
   const transcript = req.transcript.trim();
   if (!transcript) throw new AppError('EMPTY', 422, 'Nothing was heard');
   let session = req.sessionId ? await loadSession(db, companyId, req.sessionId) : null;
@@ -393,7 +392,7 @@ function buildReadback(
 }
 
 export async function confirmSession(
-  db: PGlite, companyId: string, sessionId: string, channel: 'voice' | 'screen', langHint?: Lang | null, userId: string = config.localUserId,
+  db: Database, companyId: string, sessionId: string, channel: 'voice' | 'screen', langHint?: Lang | null, userId: string = config.localUserId,
 ): Promise<VoiceResponse> {
   const s = await loadSession(db, companyId, sessionId);
   const lang: Lang = langHint ?? s?.lang ?? 'en';

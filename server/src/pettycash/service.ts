@@ -1,5 +1,4 @@
-import type { PGlite } from '@electric-sql/pglite';
-import { many, maybeOne, one, type Db } from '../db/client';
+import { many, maybeOne, one, type Db, type Database } from '../db/client';
 import { AppError, invalid, notFound } from '../lib/errors';
 import { formatINR, fromMinor, toMinor } from '../lib/money';
 import { todayIST } from '../lib/dates';
@@ -61,7 +60,7 @@ async function lowestFrom(db: Db, ledgerId: string, from: string): Promise<bigin
 
 export interface NewBox { name?: string; custodian?: string | null; floatAmount?: string; voucherLimit?: string; fundFromLedgerId?: string | null; date?: string }
 
-export async function createBox(db: PGlite, companyId: string, b: NewBox, userId: string) {
+export async function createBox(db: Database, companyId: string, b: NewBox, userId: string) {
   const name = (b.name ?? '').trim() || 'Petty Cash';
   const floatMinor = money(b.floatAmount, 'float');
   const limitMinor = b.voucherLimit ? money(b.voucherLimit, 'limit per payment') : 500000n;
@@ -84,7 +83,7 @@ export async function createBox(db: PGlite, companyId: string, b: NewBox, userId
   return { id: row.id, ledgerId: ledger.id, funded };
 }
 
-export async function updateBox(db: PGlite, companyId: string, boxId: string, p: { custodian?: string | null; floatAmount?: string; voucherLimit?: string }, userId: string) {
+export async function updateBox(db: Database, companyId: string, boxId: string, p: { custodian?: string | null; floatAmount?: string; voucherLimit?: string }, userId: string) {
   const b = await box(db, companyId, boxId);
   const floatMinor = p.floatAmount !== undefined ? money(p.floatAmount, 'float') : b.float_minor;
   const limitMinor = p.voucherLimit !== undefined ? money(p.voucherLimit, 'limit per payment') : b.voucher_limit_minor;
@@ -117,7 +116,7 @@ export async function listBoxes(db: Db, companyId: string) {
 export interface PettyExpense extends Omit<ExpenseInput, 'paidFromLedgerId'> { confirmWarnings?: boolean }
 
 /** A payment out of petty cash. Refused if the box does not hold the money on that date (and every later one). */
-export async function recordExpense(db: PGlite, companyId: string, boxId: string, e: PettyExpense, opts: { idempotencyKey: string; userId: string }) {
+export async function recordExpense(db: Database, companyId: string, boxId: string, e: PettyExpense, opts: { idempotencyKey: string; userId: string }) {
   const b = await box(db, companyId, boxId);
   isoDate(e.date);
   const amountMinor = money(e.amount, 'amount paid');
@@ -133,7 +132,7 @@ export async function recordExpense(db: PGlite, companyId: string, boxId: string
 }
 
 /** Imprest top-up: brings the box back to its float (or by the amount given) from the bank or main cash. */
-export async function topUp(db: PGlite, companyId: string, boxId: string, t: { date: string; fromLedgerId: string; amount?: string | null },
+export async function topUp(db: Database, companyId: string, boxId: string, t: { date: string; fromLedgerId: string; amount?: string | null },
   opts: { idempotencyKey: string; userId: string }) {
   const b = await box(db, companyId, boxId);
   const date = isoDate(t.date);
@@ -153,7 +152,7 @@ export async function topUp(db: PGlite, companyId: string, boxId: string, t: { d
 const SHORT_EXCESS = 'Petty Cash Short / Excess';
 
 /** The ledger shortages and excesses are posted to (created under Indirect Expenses the first time). */
-async function shortExcessLedger(db: PGlite, companyId: string, userId: string): Promise<string> {
+async function shortExcessLedger(db: Database, companyId: string, userId: string): Promise<string> {
   const l = await maybeOne<{ id: string }>(db, `SELECT id FROM ledgers WHERE company_id = $1 AND lower(name) = lower($2)`, [companyId, SHORT_EXCESS]);
   if (l) return l.id;
   const group = await groupByCode(db, companyId, 'INDIRECT_EXPENSES');
@@ -166,7 +165,7 @@ export interface CountInput { date: string; notes: Record<string, number | strin
  * Records a physical count against the book balance at the end of that day. With postDifference, a shortage is
  * paid out to "Petty Cash Short / Excess" and an excess received from it, so the books match the cash.
  */
-export async function countCash(db: PGlite, companyId: string, boxId: string, c: CountInput, opts: { idempotencyKey: string; userId: string }) {
+export async function countCash(db: Database, companyId: string, boxId: string, c: CountInput, opts: { idempotencyKey: string; userId: string }) {
   const b = await box(db, companyId, boxId);
   const date = isoDate(c.date);
   if (date > todayIST()) throw invalid('A count cannot be dated in the future');

@@ -54,10 +54,19 @@ and press **R** on the Gateway.
 ### Online demo on Vercel
 
 `vercel.json` builds a demo with `scripts/vercel-build.mjs`: the web app as static files and the server as
-one function. Vercel keeps nothing between runs, so the demo uses an in-memory database: everything entered
-is lost whenever Vercel restarts it, and backups and reminder emails do not run. Use it to show the app,
-never for real books. The AI key cannot be changed on the demo; if you set `ANTHROPIC_API_KEY` in the Vercel
-project, every visitor's AI use is billed to that key.
+one function. Vercel runs several copies of that function at once, so they need one shared database: in the
+Vercel project, open **Storage → Create Database → Neon (Postgres)** and connect it, which sets `DATABASE_URL`,
+then redeploy. Without it each copy has its own in-memory database and visitors are logged out at random.
+
+On Postgres (`server/src/db/postgres.ts`) values come back exactly as from PGlite, and transactions run one at a
+time as they do in PGlite. `npm run test:pg -w server` runs the tests through that driver. The demo:
+
+- empties the database every night at 03:00 IST and recreates the shared login `demo@example.com` / `demo1234`;
+- has no administrator: nobody can change the AI key or download backups, and the shared login cannot be changed;
+- does not accept uploads, run backups or send reminder emails.
+
+Use it to show the app, never for real books. If you set `ANTHROPIC_API_KEY` in the Vercel project, every
+visitor's AI use is billed to that key.
 
 ## Uploading documents
 

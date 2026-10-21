@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { PGlite } from '@electric-sql/pglite';
-import { many, one, type Db } from '../db/client';
+import { many, one, type Db, type Database } from '../db/client';
 import { config } from '../config';
 import { invalid } from '../lib/errors';
 import { addDays, fyEnd, fyStart, todayIST } from '../lib/dates';
@@ -107,7 +106,7 @@ export async function oldDocuments(db: Db, companyId: string, days = 90) {
 }
 
 /** Deletes the listed old uploads (each still checked by deleteDocument). Returns how many went. */
-export async function clearOldDocuments(db: PGlite, companyId: string, ids: unknown, userId: string) {
+export async function clearOldDocuments(db: Database, companyId: string, ids: unknown, userId: string) {
   if (!Array.isArray(ids) || ids.some((i) => typeof i !== 'string')) throw invalid('Choose the documents to delete');
   const allowed = new Set((await oldDocuments(db, companyId)).map((d) => d.id));
   let deleted = 0;
@@ -157,7 +156,7 @@ export async function yearClosePreview(db: Db, companyId: string, end: string) {
  * into the next year by itself (reports fold earlier years' profit into the Profit & Loss A/c), and closing stock
  * becomes next year's opening stock; nothing has to be posted.
  */
-export async function closeYear(db: PGlite, companyId: string, end: string, userId: string) {
+export async function closeYear(db: Database, companyId: string, end: string, userId: string) {
   const p = await yearClosePreview(db, companyId, end);
   if (p.blockers.length) throw invalid(`The year cannot be closed yet: ${p.blockers.join(' ')}`);
   const before = await one<{ lock_date: string | null }>(db, `SELECT lock_date::text FROM companies WHERE id = $1`, [companyId]);

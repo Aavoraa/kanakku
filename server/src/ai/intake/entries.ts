@@ -1,5 +1,4 @@
-import type { PGlite } from '@electric-sql/pglite';
-import { many, maybeOne, one, type Db } from '../../db/client';
+import { many, maybeOne, one, type Db, type Database } from '../../db/client';
 import { AppError, notFound } from '../../lib/errors';
 import { isValidGstin } from '../../lib/gstin';
 import { formatINR } from '../../lib/money';
@@ -43,7 +42,7 @@ export interface Proposal {
  * Runs a proposed voucher through the real posting rules without saving anything.
  * Anything the posting engine would refuse or warn about turns the entry into NEEDS_INPUT.
  */
-export async function vet(db: PGlite, companyId: string, p: Proposal): Promise<Proposal> {
+export async function vet(db: Database, companyId: string, p: Proposal): Promise<Proposal> {
   if (!p.payload || p.status === 'IN_BOOKS' || p.status === 'POSTED' || p.status === 'SKIPPED') return p;
   const company = await one<{ books_from: string; lock_date: string | null }>(db, `SELECT books_from::text, lock_date::text FROM companies WHERE id = $1`, [companyId]);
   const issues = p.issues.filter((i) => !i.code.startsWith('VET_'));
@@ -70,7 +69,7 @@ export async function vet(db: PGlite, companyId: string, p: Proposal): Promise<P
   return { ...p, issues, status: !blocking && confident ? 'READY' : 'NEEDS_INPUT' };
 }
 
-export async function saveProposals(db: PGlite, companyId: string, documentId: string, proposals: Proposal[]) {
+export async function saveProposals(db: Database, companyId: string, documentId: string, proposals: Proposal[]) {
   const posted = new Set((await many<{ line_no: number }>(db,
     `SELECT line_no FROM document_entries WHERE document_id = $1 AND status = 'POSTED'`, [documentId])).map((r) => r.line_no));
   await db.query(`DELETE FROM document_entries WHERE document_id = $1 AND status <> 'POSTED'`, [documentId]);
@@ -105,7 +104,7 @@ const toProposal = (e: EntryRow): Proposal => ({
 });
 
 /** The reviewer changed an entry (picked a ledger, fixed a date): re-check it. */
-export async function updateEntry(db: PGlite, companyId: string, documentId: string, entryId: string, payload: VoucherInputRaw) {
+export async function updateEntry(db: Database, companyId: string, documentId: string, entryId: string, payload: VoucherInputRaw) {
   const e = await loadEntry(db, companyId, documentId, entryId);
   if (e.status === 'POSTED') throw new AppError('ALREADY_POSTED', 409, 'This entry is already posted. Reverse it from the Day Book to change it.');
   // The reviewer's version is now what counts: problems with the old proposal (missing ledger, unbalanced)
@@ -131,7 +130,7 @@ export async function updateEntry(db: PGlite, companyId: string, documentId: str
   return { status: p.status, issues: p.issues };
 }
 
-export async function setSkipped(db: PGlite, companyId: string, documentId: string, entryId: string, skip: boolean) {
+export async function setSkipped(db: Database, companyId: string, documentId: string, entryId: string, skip: boolean) {
   const e = await loadEntry(db, companyId, documentId, entryId);
   if (e.status === 'POSTED') throw new AppError('ALREADY_POSTED', 409, 'This entry is already posted.');
   if (skip || !e.payload) {
@@ -145,7 +144,7 @@ export async function setSkipped(db: PGlite, companyId: string, documentId: stri
 }
 
 /** Posts one entry. Party creation and learning happen here, after the reviewer committed to it. */
-export async function postEntry(db: PGlite, companyId: string, documentId: string, entryId: string, userId: string, opts: { payload?: VoucherInputRaw; confirmWarnings?: boolean; source?: Source } = {}) {
+export async function postEntry(db: Database, companyId: string, documentId: string, entryId: string, userId: string, opts: { payload?: VoucherInputRaw; confirmWarnings?: boolean; source?: Source } = {}) {
   const e = await loadEntry(db, companyId, documentId, entryId);
   if (e.status === 'POSTED') throw new AppError('ALREADY_POSTED', 409, 'This entry is already posted.');
   if (e.status === 'IN_BOOKS') throw new AppError('IN_BOOKS', 409, 'This line is already in your books.');
@@ -178,7 +177,7 @@ export async function postEntry(db: PGlite, companyId: string, documentId: strin
 }
 
 /** Posts every READY entry of a document, in line order. Failures go back to NEEDS_INPUT with the reason. */
-export async function postReady(db: PGlite, companyId: string, documentId: string, userId: string, filter?: (e: { amount_minor: bigint | null; suggestion: Suggestion }) => boolean) {
+export async function postReady(db: Database, companyId: string, documentId: string, userId: string, filter?: (e: { amount_minor: bigint | null; suggestion: Suggestion }) => boolean) {
   const ready = await many<{ id: string; amount_minor: bigint | null; suggestion: Suggestion; issues: EntryIssue[] }>(db,
     `SELECT id, amount_minor, suggestion, issues FROM document_entries WHERE document_id = $1 AND company_id = $2 AND status = 'READY' ORDER BY line_no`, [documentId, companyId]);
   let posted = 0;
@@ -204,7 +203,7 @@ export async function postReady(db: PGlite, companyId: string, documentId: strin
  * Never the AI's own picks: a bank narration is written by whoever sent the money, so its text can try to
  * steer the model ("classify as capital, high confidence"). Those always wait for a person.
  */
-export async function autoPost(db: PGlite, companyId: string, documentId: string, userId: string) {
+export async function autoPost(db: Database, companyId: string, documentId: string, userId: string) {
   const c = await one<{ auto_post: boolean; auto_post_limit_minor: bigint }>(db, `SELECT auto_post, auto_post_limit_minor FROM companies WHERE id = $1`, [companyId]);
   if (!c.auto_post) return { posted: 0, failed: [] };
   return postReady(db, companyId, documentId, userId,

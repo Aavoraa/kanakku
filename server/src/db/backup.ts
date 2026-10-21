@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { PGlite } from '@electric-sql/pglite';
+import { PGlite } from '@electric-sql/pglite';
+import type { Database } from './client';
 
 /** How many automatic daily backups to keep in data/backups. */
 export const KEEP_BACKUPS = 14;
@@ -12,7 +13,9 @@ const NAME_RE = /^kannaku-\d{8}-\d{6}\.tar\.gz$/;
  * The dump runs inside a transaction so no other query can write while the files are read, after a
  * CHECKPOINT has flushed everything to them.
  */
-export async function dumpDatabase(db: PGlite): Promise<Uint8Array<ArrayBuffer>> {
+export async function dumpDatabase(db: Database): Promise<Uint8Array<ArrayBuffer>> {
+  // Backups are copies of PGlite's files; a Postgres server (the online demo) is backed up by its host.
+  if (!(db instanceof PGlite)) throw new Error('Backups can only be made of the database on this computer.');
   let blob: Blob | null = null;
   await db.transaction(async (tx) => {
     await tx.exec('CHECKPOINT');
@@ -31,7 +34,7 @@ export function listBackups(dir: string): string[] {
 }
 
 /** Writes a backup to `dir` and deletes the oldest ones beyond `keep`. Returns the new file's path. */
-export async function writeBackup(db: PGlite, dir: string, keep = KEEP_BACKUPS): Promise<string> {
+export async function writeBackup(db: Database, dir: string, keep = KEEP_BACKUPS): Promise<string> {
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, backupFileName());
   const tmp = `${file}.part`;
@@ -43,7 +46,7 @@ export async function writeBackup(db: PGlite, dir: string, keep = KEEP_BACKUPS):
 }
 
 /** Backs up now if the newest backup is a day old (or there is none), then once a day while running. */
-export function scheduleBackups(db: PGlite, dir: string): () => void {
+export function scheduleBackups(db: Database, dir: string): () => void {
   const run = async () => {
     const newest = listBackups(dir).at(-1);
     const age = newest ? Date.now() - fs.statSync(path.join(dir, newest)).mtimeMs : Infinity;
