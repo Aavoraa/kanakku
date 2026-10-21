@@ -19,6 +19,8 @@ const dataDir = path.resolve(ROOT_DIR, process.env.DATA_DIR ?? (demo ? '/tmp/kan
 
 export const config = {
   demo,
+  // The shared login on the demo, shown on the sign-in screen. Everyone who uses it sees the same books.
+  demoLogin: demo ? { email: 'demo@example.com', password: 'demo1234' } : null,
   port: Number(process.env.PORT ?? 4000),
   dataDir,
   envFile,

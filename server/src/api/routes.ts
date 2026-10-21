@@ -58,17 +58,15 @@ export function registerRoutes(app: FastifyInstance, db: PGlite) {
 
   // ---------- Whole installation: AI key and backups (the administrator, i.e. the first account, only) ----------
   const requireAdmin = async (req: Req, what: string) => {
+    // The demo has no administrator: the AI key would serve every visitor, and a backup holds every visitor's data.
+    if (config.demo) throw new AppError('DEMO', 403, `You cannot ${what} on the demo.`);
     if (!await isAdmin(db, requireUser(req).id)) {
       throw new AppError('FORBIDDEN', 403, `Only the administrator (the first account created on this computer) can ${what}.`);
     }
   };
-  // On the public demo one visitor's key would be used by every visitor, so the key cannot be changed there.
-  const noKeyOnDemo = () => {
-    if (config.demo) throw new AppError('DEMO', 403, 'The AI key cannot be changed on the demo.');
-  };
-  app.get('/api/v1/settings/ai-key', async (req: Req) => ({ ...aiKeyStatus(), canChange: !config.demo && await isAdmin(db, requireUser(req).id) }));
-  app.put('/api/v1/settings/ai-key', async (req: Req) => { noKeyOnDemo(); await requireAdmin(req, 'change the AI key'); return setAiKey(body(req).apiKey); });
-  app.delete('/api/v1/settings/ai-key', async (req: Req) => { noKeyOnDemo(); await requireAdmin(req, 'change the AI key'); return removeAiKey(); });
+  app.get('/api/v1/settings/ai-key', async (req: Req) => ({ ...aiKeyStatus(), canChange: await isAdmin(db, requireUser(req).id) }));
+  app.put('/api/v1/settings/ai-key', async (req: Req) => { await requireAdmin(req, 'change the AI key'); return setAiKey(body(req).apiKey); });
+  app.delete('/api/v1/settings/ai-key', async (req: Req) => { await requireAdmin(req, 'change the AI key'); return removeAiKey(); });
 
   app.get('/api/v1/backups', async (req: Req) => {
     await requireAdmin(req, 'see backups');
@@ -93,7 +91,7 @@ export function registerRoutes(app: FastifyInstance, db: PGlite) {
   app.get('/api/v1/status', async () => {
     const hasUsers = Boolean(await maybeOne(db, 'SELECT 1 FROM users LIMIT 1'));
     return {
-      app: 'Kannaku AI', aiEnabled: config.aiEnabled, model: config.model, today: todayIST(), states: STATES, hasUsers, demo: config.demo,
+      app: 'Kannaku AI', aiEnabled: config.aiEnabled, model: config.model, today: todayIST(), states: STATES, hasUsers, demo: config.demo, demoLogin: config.demoLogin,
       // Before the first sign-up only: books already on this machine, which the first account will own.
       unclaimed: hasUsers ? [] : (await many<{ name: string }>(db, 'SELECT name FROM companies ORDER BY created_at')).map((r) => r.name),
     };

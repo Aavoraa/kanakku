@@ -548,6 +548,9 @@ button.post { margin-top: 0.35rem; padding: 0.7rem; font-weight: 650; }
 .auth-form input:not([type=checkbox]), .auth-form select { padding: 0.6rem 0.7rem; }
 .auth-switch { text-align: center; color: var(--muted); font-size: 0.88rem; margin: 0; }
 .auth-note { font-size: 0.85rem; color: var(--muted); margin: 0; }
+.auth-card > .auth-note { margin-bottom: 1rem; }
+.demo-login { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.8rem; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-2); }
+.demo-login p { margin: 0; font-size: 0.85rem; color: var(--text-2); }
 .opt { font-weight: 400; color: var(--muted); font-size: 0.75rem; }
 .field-error { color: var(--bad); font-size: 0.78rem; }
 .field-note { color: var(--muted); font-size: 0.75rem; font-weight: 400; }

@@ -7,6 +7,7 @@ import { isValidGstin, gstinState, STATES } from '../lib/gstin';
 import { fyStart, todayIST } from '../lib/dates';
 import { createCompany } from '../ledger/masters';
 import { seedDemo, DEMO_COMPANY_NAME } from '../db/demo';
+import { config } from '../config';
 
 const scrypt = promisify(crypto.scrypt) as (pw: string, salt: Buffer, keylen: number, opts: crypto.ScryptOptions) => Promise<Buffer>;
 const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 64 };
@@ -59,8 +60,10 @@ export async function purgeExpiredSessions(db: Db) {
 /**
  * The installation's administrator: the first account created on this server. Settings that affect every
  * company here (the AI key, whole-database backups) are theirs alone, since anyone who signs up owns their own company.
+ * The demo has no administrator: its first account is the shared demo login, and a backup holds every visitor's data.
  */
 export async function isAdmin(db: Db, userId: string): Promise<boolean> {
+  if (config.demo) return false;
   const first = await maybeOne<{ id: string }>(db, `SELECT id FROM users ORDER BY created_at, id LIMIT 1`);
   return first?.id === userId;
 }
@@ -81,7 +84,11 @@ const failures = new Map<string, { count: number; until: number }>();
 const MAX_FAILURES = 5;
 const LOCK_MS = 15 * 60_000;
 
+/** The demo login's password is public, so wrong guesses must not lock every visitor out of it. */
+export const isDemoLogin = (email: string) => email === config.demoLogin?.email;
+
 function checkLock(email: string) {
+  if (isDemoLogin(email)) return;
   const f = failures.get(email);
   if (f && f.count >= MAX_FAILURES && f.until > Date.now()) {
     const mins = Math.ceil((f.until - Date.now()) / 60_000);
@@ -161,6 +168,14 @@ export async function addDemo(db: PGlite, userId: string) {
   if (has) return;
   const id = await seedDemo(db);
   await db.query(`INSERT INTO company_members (company_id, user_id, role) VALUES ($1,$2,'OWNER')`, [id, userId]);
+}
+
+/** Creates the demo's shared login, owning the sample company. */
+export async function createDemoLogin(db: PGlite, demoLogin: { email: string; password: string }) {
+  const user = await one<{ id: string }>(db,
+    `INSERT INTO users (email, name, password_hash) VALUES ($1, 'Demo user', $2) RETURNING id`,
+    [demoLogin.email, await hashPassword(demoLogin.password)]);
+  await addDemo(db, user.id);
 }
 
 export async function login(db: Db, emailRaw: string, password: string): Promise<User> {

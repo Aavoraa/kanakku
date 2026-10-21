@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { PGlite } from '@electric-sql/pglite';
 import { AppError } from '../lib/errors';
 import {
-  addCompany, addDemo, changePassword, clearCookie, createSession, endSession, isAdmin, listSessions, login, memberships, readCookie,
+  addCompany, addDemo, changePassword, clearCookie, createSession, endSession, isAdmin, isDemoLogin, listSessions, login, memberships, readCookie,
   SESSION_COOKIE, sessionCookie, signOutOthers, signup, updateProfile, type User,
 } from './auth';
 
@@ -29,13 +29,19 @@ export function registerAuthRoutes(app: FastifyInstance, db: PGlite) {
 
   // ---------- Own account (signed in) ----------
   const token = (req: FastifyRequest) => readCookie(req.headers.cookie, SESSION_COOKIE);
-  app.patch('/api/v1/account/profile', async (req) => ({ user: await updateProfile(db, requireUser(req).id, body(req)) }));
+  // Everyone shares the demo login, so nobody may change it or sign the others out.
+  const ownAccount = (req: FastifyRequest): User => {
+    const user = requireUser(req);
+    if (isDemoLogin(user.email)) throw new AppError('DEMO', 403, 'The shared demo login cannot be changed. Create your own account to try this.');
+    return user;
+  };
+  app.patch('/api/v1/account/profile', async (req) => ({ user: await updateProfile(db, ownAccount(req).id, body(req)) }));
   app.post('/api/v1/account/password', async (req) => {
     const b = body(req);
-    return changePassword(db, requireUser(req).id, b.currentPassword, b.newPassword, token(req));
+    return changePassword(db, ownAccount(req).id, b.currentPassword, b.newPassword, token(req));
   });
   app.get('/api/v1/account/sessions', async (req) => listSessions(db, requireUser(req).id, token(req)));
-  app.post('/api/v1/account/sessions/sign-out-others', async (req) => signOutOthers(db, requireUser(req).id, token(req)));
+  app.post('/api/v1/account/sessions/sign-out-others', async (req) => signOutOthers(db, ownAccount(req).id, token(req)));
 
   app.post('/api/v1/auth/signup', async (req, reply) => {
     const { user, companyId } = await signup(db, body(req));

@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { openDb } from './db/client';
 import { buildApp } from './app';
+import { config } from './config';
+import { createDemoLogin } from './auth/auth';
 
 /**
  * Entry point for the Vercel demo (built by scripts/vercel-build.mjs). Each running instance keeps its own
@@ -9,6 +11,7 @@ import { buildApp } from './app';
  */
 const ready = (async () => {
   const db = await openDb();
+  if (config.demoLogin) await createDemoLogin(db, config.demoLogin);
   const app = await buildApp(db);
   await app.ready();
   return app;

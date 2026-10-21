@@ -27,7 +27,7 @@ export function AuthScreen({ status, onAuthed }: { status: Status; onAuthed: OnA
           <button role="tab" aria-selected={mode === 'signup'} className={mode === 'signup' ? 'on' : ''} onClick={() => setMode('signup')}>Create account</button>
         </div>
         {mode === 'login'
-          ? <LoginForm onAuthed={onAuthed} onSwitch={() => setMode('signup')} />
+          ? <LoginForm demoLogin={status.demoLogin ?? null} onAuthed={onAuthed} onSwitch={() => setMode('signup')} />
           : <SignupForm status={status} onAuthed={onAuthed} onSwitch={() => setMode('login')} />}
       </div>
     </div>
@@ -46,20 +46,29 @@ function PasswordInput({ value, onChange, autoComplete, label, minLength }: { va
   );
 }
 
-function LoginForm({ onAuthed, onSwitch }: { onAuthed: OnAuthed; onSwitch: () => void }) {
+type DemoLogin = { email: string; password: string } | null;
+
+function LoginForm({ demoLogin, onAuthed, onSwitch }: { demoLogin: DemoLogin; onAuthed: OnAuthed; onSwitch: () => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState<{ message: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const submit = async () => {
+  const submit = async (creds = { email, password }) => {
     setBusy(true); setErr(null);
     try {
-      const r = await api.post<{ user: User }>('/api/v1/auth/login', { email, password });
+      const r = await api.post<{ user: User }>('/api/v1/auth/login', creds);
       await onAuthed(r.user);
     } catch (e) { setErr({ message: e instanceof ApiError ? e.message : String(e) }); setBusy(false); }
   };
   return (
     <form className="auth-form" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+      {demoLogin && (
+        <div className="demo-login">
+          <p>Demo login: <strong>{demoLogin.email}</strong> / <strong>{demoLogin.password}</strong>. Everyone trying the
+            demo shares it, so others can see and change what you enter.</p>
+          <button type="button" className="primary block" disabled={busy} onClick={() => void submit(demoLogin)}>Log in to the demo</button>
+        </div>
+      )}
       <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required autoFocus /></label>
       <PasswordInput label="Password" value={password} onChange={setPassword} autoComplete="current-password" />
       <ErrorBox error={err} />
