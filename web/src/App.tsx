@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { AppProvider, useApp, type Route } from './state';
-import { dispatchKey, pressKey, useGlobalKeys } from './keys';
-import { Kbd } from './components/ui';
+import { dispatchKey, useGlobalKeys } from './keys';
+import { Kbd, Modal } from './components/ui';
 import { Palette } from './components/Palette';
 import { VoicePanel } from './components/Voice';
+import { Sidebar } from './components/Sidebar';
+import { Icon } from './components/Icon';
 import { Gateway } from './screens/Gateway';
 import { VoucherEntry } from './screens/VoucherEntry';
 import { Daybook } from './screens/Daybook';
@@ -12,7 +14,6 @@ import { Ageing, BalanceSheet, GstSummary, LedgerStatement, ProfitLoss, StockSum
 import { Masters, Settings } from './screens/Masters';
 import { DocumentScreen, DocumentsQueue } from './screens/Documents';
 import { fmtDate } from './format';
-import { Modal } from './components/ui';
 import { CompanyForm } from './components/CompanyForm';
 import { AiKeyDialog } from './components/AiKey';
 import { AlertsBell } from './components/Alerts';
@@ -21,13 +22,9 @@ import { Profile } from './screens/Profile';
 import { PettyCash } from './screens/PettyCash';
 import { Assets } from './screens/Assets';
 import { Upkeep } from './screens/Upkeep';
+import { applyTheme, loadTheme, type Theme } from './theme';
 
-const KEYBAR: [string, string][] = [
-  ['Escape', 'Back'], ['F8', 'Sales'], ['F9', 'Purchase'], ['F5', 'Payment'], ['F6', 'Receipt'], ['F4', 'Contra'], ['F7', 'Journal'],
-  ['Ctrl+U', 'Upload documents'], ['Alt+H', 'Home'],
-];
-
-const VOUCHER_KEYS: Record<string, string> ={ F4: 'CONTRA', F5: 'PAYMENT', F6: 'RECEIPT', F7: 'JOURNAL', F8: 'SALES', F9: 'PURCHASE', 'Alt+F6': 'CREDIT_NOTE', 'Alt+F5': 'DEBIT_NOTE' };
+const VOUCHER_KEYS: Record<string, string> = { F4: 'CONTRA', F5: 'PAYMENT', F6: 'RECEIPT', F7: 'JOURNAL', F8: 'SALES', F9: 'PURCHASE', 'Alt+F6': 'CREDIT_NOTE', 'Alt+F5': 'DEBIT_NOTE' };
 
 function Screen({ route }: { route: Route }) {
   const p = route.params ?? {};
@@ -60,12 +57,15 @@ function Shell({ toasts }: { toasts: { id: number; msg: string; kind: string }[]
   const [palette, setPalette] = useState(false);
   const [voice, setVoice] = useState(false);
   const [wake, setWake] = useState(false);
+  const [drawer, setDrawer] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { dispatchKey(e); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+  // Any navigation closes the phone drawer.
+  useEffect(() => { setDrawer(false); }, [app.route]);
 
   // Global keys: any screen's own map takes precedence.
   const global: Record<string, () => boolean | void> = {
@@ -81,37 +81,40 @@ function Shell({ toasts }: { toasts: { id: number; msg: string; kind: string }[]
   const route = app.route;
   return (
     <div className="app">
-      <header className="topbar">
-        <button className="brand" onClick={app.home} title="Gateway (Alt+H)">Kannaku AI</button>
-        <CompanySwitcher />
-        <div className="top-actions">
-          <button onClick={() => setPalette(true)}>Go to <Kbd>Ctrl+K</Kbd></button>
-          <button className={`voice-btn ${voice ? 'on' : ''}`} onClick={() => setVoice((v) => !v)}
-            title={wake ? 'Listening for “Kannaku”. Hold Ctrl+Space to talk' : 'Hold Ctrl+Space to talk'}>{wake && <span className="wake-dot on" aria-label="Listening for Kannaku" />}Voice <Kbd>Ctrl+Space</Kbd></button>
-          <button className={`ai-chip ${app.status.aiEnabled ? 'on' : 'off'}`} onClick={() => app.setAiKeyOpen(true)}
-            title={app.status.aiEnabled ? `AI on, model ${app.status.model}. Click to manage the API key` : 'Click to enter your Anthropic API key'}>AI {app.status.aiEnabled ? 'on' : 'off'}</button>
-          <AlertsBell />
-          <UserMenu />
-        </div>
-      </header>
-
-      <main className="content" key={`${route.screen}-${app.stackDepth}`}>
-        <Screen route={route} />
-      </main>
-
-      {/* Each shortcut can also be clicked; a click does what the key does on the current screen. */}
-      <footer className="keybar" aria-label="Keyboard shortcuts">
-        {(app.stackDepth > 1 ? KEYBAR : KEYBAR.filter(([k]) => k !== 'Escape')).map(([k, label]) => (
-          <button key={k} type="button" onClick={() => pressKey(k)} title={`${label} (${k === 'Escape' ? 'Esc' : k})`}>
-            <Kbd>{k === 'Escape' ? 'Esc' : k}</Kbd> {label}
+      <Sidebar open={drawer} onClose={() => setDrawer(false)} />
+      <div className="main-col">
+        <header className="topbar">
+          <button className="ghost icon-btn menu-btn" onClick={() => setDrawer(true)} aria-label="Open menu"><Icon name="menu" /></button>
+          {app.stackDepth > 1 && (
+            <button className="ghost back-btn" onClick={() => app.back()} title="Back (Esc)"><Icon name="back" /><span>Back</span></button>
+          )}
+          <CompanySwitcher />
+          <button className="search-btn" onClick={() => setPalette(true)} aria-label="Search and go to (Ctrl+K)">
+            <Icon name="search" /><span>Search or jump to…</span><Kbd>Ctrl+K</Kbd>
           </button>
-        ))}
-      </footer>
+          <div className="top-actions">
+            <button className={`ghost icon-btn voice-btn ${voice ? 'on' : ''}`} onClick={() => setVoice((v) => !v)} aria-pressed={voice}
+              title={wake ? 'Voice assistant · listening for “Kannaku” · hold Ctrl+Space to talk' : 'Voice assistant · hold Ctrl+Space to talk'}>
+              <Icon name="mic" />{wake && <span className="wake-dot on" aria-label="Listening for Kannaku" />}
+            </button>
+            <button className={`ai-chip ${app.status.aiEnabled ? 'on' : 'off'}`} onClick={() => app.setAiKeyOpen(true)}
+              title={app.status.aiEnabled ? `AI on, model ${app.status.model}. Click to manage the API key` : 'Click to enter your Anthropic API key'}>
+              <Icon name="sparkle" size={15} /> AI {app.status.aiEnabled ? 'on' : 'off'}
+            </button>
+            <AlertsBell />
+            <UserMenu />
+          </div>
+        </header>
+
+        <main className="content" key={`${route.screen}-${app.stackDepth}`}>
+          <div className="page"><Screen route={route} /></div>
+        </main>
+      </div>
 
       {palette && <Palette onClose={() => setPalette(false)} />}
       {app.aiKeyOpen && <AiKeyDialog onClose={() => app.setAiKeyOpen(false)} />}
       <VoicePanel open={voice} onOpen={() => setVoice(true)} onClose={() => setVoice(false)} onWakeChange={setWake} />
-      <div className="toasts" aria-live="polite">{toasts.map((t) => <div key={t.id} className={`toast ${t.kind}`}>{t.msg}</div>)}</div>
+      <div className="toasts" aria-live="polite">{toasts.map((t) => <div key={t.id} className={`toast ${t.kind}`} role={t.kind === 'error' ? 'alert' : undefined}>{t.msg}</div>)}</div>
     </div>
   );
 }
@@ -120,7 +123,7 @@ export default function App() {
   return <AppProvider>{(toasts) => <Shell toasts={toasts} />}</AppProvider>;
 }
 
-/** Company name in the top bar; opens a list of the user's businesses and "Add a business". */
+/** Business name in the top bar; opens the user's businesses and "Add a business". */
 function CompanySwitcher() {
   const app = useApp();
   const [open, setOpen] = useState(false);
@@ -134,8 +137,8 @@ function CompanySwitcher() {
   return (
     <div className="company-switch">
       <button className="company" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} title="Switch business">
-        <strong>{app.company.name} <span aria-hidden>▾</span></strong>
-        <span className="muted">{app.company.gstin ?? 'GSTIN not set'} · {fmtDate(app.status.today)}</span>
+        <span className="company-name">{app.company.name}<Icon name="chevron" size={14} /></span>
+        <span className="muted company-sub">{app.company.gstin ?? 'GSTIN not set'} · {fmtDate(app.status.today)}</span>
       </button>
       {open && (
         <div className="menu-pop" role="menu">
@@ -146,7 +149,7 @@ function CompanySwitcher() {
             </button>
           ))}
           <hr />
-          <button role="menuitem" onClick={() => { setOpen(false); setAdding(true); }}>+ Add a business</button>
+          <button role="menuitem" onClick={() => { setOpen(false); setAdding(true); }}><span><Icon name="plus" size={14} /> Add a business</span></button>
         </div>
       )}
       {adding && (
@@ -161,12 +164,14 @@ function CompanySwitcher() {
 function UserMenu() {
   const app = useApp();
   const [open, setOpen] = useState(false);
+  const [theme, setTheme] = useState<Theme>(loadTheme);
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest('.user-menu')) setOpen(false); };
     window.addEventListener('mousedown', close);
     return () => window.removeEventListener('mousedown', close);
   }, [open]);
+  const pick = (t: Theme) => { setTheme(t); applyTheme(t); };
   const initials = app.user.name.trim().split(/\s+/).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   return (
     <div className="user-menu">
@@ -175,9 +180,16 @@ function UserMenu() {
         <div className="menu-pop right" role="menu">
           <div className="menu-who"><strong>{app.user.name}</strong><small>{app.user.email}</small></div>
           <hr />
-          <button role="menuitem" onClick={() => { setOpen(false); app.go({ screen: 'profile' }); }}>My profile and password</button>
-          <button role="menuitem" onClick={() => { setOpen(false); app.go({ screen: 'settings' }); }}>Company settings</button>
-          <button role="menuitem" onClick={() => void app.logout()}>Log out</button>
+          <button role="menuitem" onClick={() => { setOpen(false); app.open({ screen: 'profile' }); }}><span><Icon name="user" size={15} /> My profile and password</span></button>
+          <button role="menuitem" onClick={() => { setOpen(false); app.open({ screen: 'settings' }); }}><span><Icon name="settings" size={15} /> Company settings</span></button>
+          <hr />
+          <div className="theme-switch" role="radiogroup" aria-label="Appearance">
+            {([['system', 'Auto', 'settings'], ['light', 'Light', 'sun'], ['dark', 'Dark', 'moon']] as const).map(([t, label, icon]) => (
+              <button key={t} role="radio" aria-checked={theme === t} className={theme === t ? 'on' : ''} onClick={() => pick(t)}><Icon name={icon} size={14} /> {label}</button>
+            ))}
+          </div>
+          <hr />
+          <button role="menuitem" onClick={() => void app.logout()}><span><Icon name="logout" size={15} /> Log out</span></button>
         </div>
       )}
     </div>

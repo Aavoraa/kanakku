@@ -1,5 +1,5 @@
 import { many, one, type Db } from '../db/client';
-import { resolvePeriod, todayIST } from '../lib/dates';
+import { monthStart, resolvePeriod, shiftMonths, todayIST } from '../lib/dates';
 import { ageing } from './registers';
 import { gstSummary } from './gst';
 
@@ -27,6 +27,25 @@ export async function cashBalance(db: Db, companyId: string, asOf: string) {
 }
 export async function bankBalance(db: Db, companyId: string, asOf: string) {
   return groupBalance(db, companyId, ['BANK_ACCOUNTS', 'BANK_OD'], asOf);
+}
+
+/**
+ * Sales and purchases for each of the last `n` months (this month to date included), net of reversals and of credit /
+ * debit notes, for the dashboard chart.
+ */
+export async function monthlyTrading(db: Db, companyId: string, today: string, n = 6) {
+  const months = Array.from({ length: n }, (_, i) => shiftMonths(monthStart(today), i - (n - 1)));
+  const rows = await many<{ m: string; base: string; s: bigint }>(db,
+    `SELECT to_char(v.voucher_date, 'YYYY-MM') AS m, t.base_type AS base,
+            SUM(CASE WHEN v.reverses_voucher_id IS NULL THEN v.total_minor ELSE -v.total_minor END)::bigint AS s
+       FROM vouchers v JOIN voucher_types t ON t.id = v.voucher_type_id
+      WHERE v.company_id = $1 AND t.base_type IN ('SALES','CREDIT_NOTE','PURCHASE','DEBIT_NOTE') AND v.voucher_date BETWEEN $2 AND $3
+      GROUP BY 1, 2`, [companyId, months[0], today]);
+  const sum = (m: string, base: string) => rows.find((r) => r.m === m && r.base === base)?.s ?? 0n;
+  return months.map((start) => {
+    const m = start.slice(0, 7);
+    return { month: m, salesMinor: sum(m, 'SALES') - sum(m, 'CREDIT_NOTE'), purchasesMinor: sum(m, 'PURCHASE') - sum(m, 'DEBIT_NOTE') };
+  });
 }
 
 export async function dashboard(db: Db, companyId: string) {
@@ -59,6 +78,7 @@ export async function dashboard(db: Db, companyId: string) {
     purchasesMonthMinor: await typeTotal(db, companyId, 'PURCHASE', month.from, month.to),
     gstPayableMonthMinor: gst.netPayableMinor,
     pendingDocuments: Number(pending.n),
+    months: await monthlyTrading(db, companyId, today),
     recent,
   };
 }

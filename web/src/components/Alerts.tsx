@@ -3,6 +3,7 @@ import { api, c, type ComplianceAlerts } from '../api';
 import { useApp, type Screen } from '../state';
 import { fmtDate } from '../format';
 import { dueText, notifyDue } from '../notify';
+import { Icon } from './Icon';
 
 /** Top-bar bell: GST, TDS and income-tax filings and own reminders that are overdue or due soon. */
 export function AlertsBell() {
@@ -44,9 +45,9 @@ export function AlertsBell() {
     : `${data.overdue ? `${data.overdue} overdue` : ''}${data.overdue && data.dueSoon ? ', ' : ''}${data.dueSoon ? `${data.dueSoon} due soon` : ''}`;
   return (
     <div className="alerts">
-      <button className={`bell ${data?.overdue ? 'has-overdue' : ''}`} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}
+      <button className={`ghost icon-btn bell ${data?.overdue ? 'has-overdue' : ''}`} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}
         aria-label={`Compliance reminders: ${label}`} title={label}>
-        <span aria-hidden>🔔</span>{count > 0 && <span className="bell-count">{count > 99 ? '99+' : count}</span>}
+        <Icon name="bell" />{count > 0 && <span className="bell-count">{count > 99 ? '99+' : count}</span>}
       </button>
       {open && (
         <div className="menu-pop right alerts-pop" role="menu">

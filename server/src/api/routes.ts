@@ -257,6 +257,13 @@ export function registerRoutes(app: FastifyInstance, db: PGlite) {
     return { from, to, today, settings: await complianceSettings(db, c.id), items: await complianceItems(db, c.id, from, to, today), tasks: await listTasks(db, c.id) };
   });
   app.get(`${P}/compliance/alerts`, async (req: Req) => complianceAlerts(db, (await company(req)).id));
+  // Badges for the sidebar: uploads waiting for review, and reminders overdue or due soon.
+  app.get(`${P}/counts`, async (req: Req) => {
+    const c = await company(req);
+    const docs = await one<{ n: bigint }>(db, `SELECT COUNT(*)::bigint AS n FROM documents WHERE company_id = $1 AND status IN ('RECEIVED','PROCESSING','NEEDS_REVIEW')`, [c.id]);
+    const a = await complianceAlerts(db, c.id);
+    return { pendingDocuments: Number(docs.n), overdue: a.overdue, dueSoon: a.dueSoon };
+  });
   app.put(`${P}/compliance/settings`, async (req: Req) => updateComplianceSettings(db, (await company(req)).id, body(req), uid(req)));
   app.put(`${P}/compliance/records/:key`, async (req: Req) => saveRecord(db, (await company(req)).id, req.params.key, body(req), uid(req)));
   app.post(`${P}/compliance/tasks`, async (req: Req) => createTask(db, (await company(req)).id, body(req), uid(req)));

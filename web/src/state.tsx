@@ -36,6 +36,10 @@ interface AppState {
   replace: (r: Route) => void;
   back: () => void;
   home: () => void;
+  /** Opens a page from the sidebar or search: Home underneath it, so Esc goes back to Home. */
+  open: (r: Route) => void;
+  /** A screen with unsaved work (a half-typed voucher) sets the question to ask before the sidebar leaves it. */
+  setLeaveGuard: (question: string | null) => void;
   toast: (msg: string, kind?: 'ok' | 'error' | 'info') => void;
   dataVersion: number;
   bumpData: () => void;
@@ -136,6 +140,12 @@ export function AppProvider({ children }: { children: (toasts: { id: number; msg
     setStack([{ screen: 'gateway' }]);
   }, []);
 
+  const leaveGuard = useRef<string | null>(null);
+  const mayLeave = () => {
+    if (leaveGuard.current && !window.confirm(leaveGuard.current)) return false;
+    leaveGuard.current = null;
+    return true;
+  };
   const company = companies.find((x) => x.id === companyId) ?? null;
   const value = useMemo<AppState | null>(() => (status && user && company ? {
     status, user, setUser, company, companies,
@@ -147,7 +157,9 @@ export function AppProvider({ children }: { children: (toasts: { id: number; msg
     go: (r) => setStack((s) => [...s, r]),
     replace: (r) => setStack((s) => [...s.slice(0, -1), r]),
     back: () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)),
-    home: () => setStack([{ screen: 'gateway' }]),
+    home: () => { if (mayLeave()) setStack([{ screen: 'gateway' }]); },
+    open: (r) => { if (mayLeave()) setStack(r.screen === 'gateway' ? [{ screen: 'gateway' }] : [{ screen: 'gateway' }, r]); },
+    setLeaveGuard: (q) => { leaveGuard.current = q; },
     toast,
     dataVersion,
     bumpData: () => { setDataVersion((v) => v + 1); void refreshMasters(); },

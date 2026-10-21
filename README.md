@@ -227,7 +227,7 @@ ticks off the reminder it completes. Retiring an asset stops its reminders.
 | Ctrl+Space (hold) | Talk (Chrome / Edge speech recognition; English/Hinglish or Tamil) |
 | Alt+A / Alt+X | Alter / reverse the open voucher |
 | Esc | Back |
-| Gateway letters | D Day Book · T Trial Balance · P P&L · B Balance Sheet · A/Y Ageing · L Ledger · S Stock · G GST · M Masters · R Documents · E Petty cash · F Assets · C Compliance · U Upkeep · O Settings |
+| Letters on Home | D Day Book · T Trial Balance · P P&L · B Balance Sheet · A/Y Ageing · L Ledger · S Stock · G GST · M Masters · R Documents · E Petty cash · F Assets · C Compliance · U Upkeep · O Settings |
 
 ## How it is built
 

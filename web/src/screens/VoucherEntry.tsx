@@ -120,6 +120,12 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
   const entryDiff = useMemo(() => entries.reduce((s, e) => s + (toMinor(e.amount || '0') ?? 0n) * (e.side === 'DR' ? 1n : -1n), 0n), [entries]);
 
   const dirty = trading ? items.some((r) => r.amount || r.ref) || Boolean(partyId) : entries.some((e) => e.amount || e.ledgerId);
+  // Leaving through the sidebar or search asks first, like Esc does, so a half-typed voucher is not lost by a stray click.
+  const { setLeaveGuard } = app;
+  useEffect(() => {
+    setLeaveGuard(dirty ? 'Discard this voucher?' : null);
+    return () => setLeaveGuard(null);
+  }, [dirty, setLeaveGuard]);
 
   const reset = (keepType = type) => {
     setPartyId(null); setRefNo(''); setRefDate(''); setOriginalRef(''); setNarration(''); setRcm(false);

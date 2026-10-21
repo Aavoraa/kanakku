@@ -136,6 +136,10 @@ describe('reports', () => {
     expect(g.byComponent.find((c) => c.component === 'IGST')).toBeTruthy();
     const dash = await dashboard(db, companyId);
     expect(dash.receivablesMinor).toBeGreaterThan(0n);
+    // Six months for the home chart, oldest first, ending with this month; the sample company has sales in them.
+    expect(dash.months).toHaveLength(6);
+    expect(dash.months.at(-1)!.month).toBe(today.slice(0, 7));
+    expect(dash.months.some((m) => m.salesMinor > 0n)).toBe(true);
     const stock = await stockAsOf(db, companyId, today);
     expect(stock.find((s) => s.name.startsWith('TMT'))!.qty).toBe('1000');
   });
