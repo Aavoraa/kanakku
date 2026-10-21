@@ -14,25 +14,57 @@ import { createDemoLogin } from './auth/auth';
  */
 const url = config.demoDatabase?.url;
 
-const ready = (async () => {
-  let db: Database;
-  if (url) {
-    console.log(`Using the Postgres database in ${config.demoDatabase!.variable}.`);
-    db = await openPostgres(url);
-    await wipeIfDue(db);
-  } else {
-    console.warn('No DATABASE_URL: using an in-memory database, so logins break when Vercel runs more than one copy. '
-      + 'Connect a Neon database in the Vercel project (Storage) and redeploy.');
-    db = await openDb();
+async function start() {
+  let db: Database | null = null;
+  try {
+    if (url) {
+      console.log(`Using the Postgres database in ${config.demoDatabase!.variable}.`);
+      db = await openPostgres(url);
+      await wipeIfDue(db);
+    } else {
+      console.warn('No DATABASE_URL: using an in-memory database, so logins break when Vercel runs more than one copy. '
+        + 'Connect a Neon database in the Vercel project (Storage) and redeploy.');
+      db = await openDb();
+    }
+    if (config.demoLogin) await createDemoLogin(db, config.demoLogin);
+    const app = await buildApp(db);
+    await app.ready();
+    return { app, db };
+  } catch (e) {
+    await db?.close().catch(() => {});
+    throw e;
   }
-  if (config.demoLogin) await createDemoLogin(db, config.demoLogin);
-  const app = await buildApp(db);
-  await app.ready();
-  return { app, db };
-})();
+}
+
+let ready = start();
+ready.catch(() => {}); // reported by the handler; an unhandled rejection would crash the function
+
+/** A startup error for the visitor, without the database's address, user or password. */
+function startError(e: unknown): string {
+  const err = e as { message?: string; code?: string };
+  let message = `${err.message ?? String(e)}${err.code ? ` (${err.code})` : ''}`;
+  if (url) {
+    try {
+      const u = new URL(url);
+      for (const secret of [url, u.password, u.username, u.host, u.hostname]) if (secret) message = message.split(secret).join('…');
+    } catch { /* not a URL: nothing to hide */ }
+  }
+  return message.slice(0, 400);
+}
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  const { app, db } = await ready;
+  let started: Awaited<typeof ready>;
+  try {
+    started = await ready;
+  } catch (e) {
+    console.error('The demo could not start:', e);
+    ready = start(); // try again on the next request
+    ready.catch(() => {});
+    res.writeHead(503, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ code: 'DEMO_START_FAILED', message: `The demo could not start: ${startError(e)}`, details: null }));
+    return;
+  }
+  const { app, db } = started;
   if (url) {
     try {
       if (await wipeIfDue(db) && config.demoLogin) await createDemoLogin(db, config.demoLogin);
