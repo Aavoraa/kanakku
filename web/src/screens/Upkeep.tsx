@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, c, ApiError } from '../api';
 import { useApp } from '../state';
-import { ErrorBox, ScreenHead } from '../components/ui';
+import { ErrorBox, Panel, ScreenHead } from '../components/ui';
 import { fmtDate, fyStart, inr } from '../format';
 import { Backups } from './Masters';
 
@@ -17,10 +17,10 @@ export function Upkeep() {
   return (
     <div className="settings upkeep">
       <ScreenHead title="Upkeep" sub="Keep the books healthy: check them, back them up, tidy old uploads and close finished years." />
-      <Health />
-      <Backups />
-      <OldDocuments />
-      <YearClose />
+      <div className="tile-columns">
+        <div className="tile-stack"><Health /><YearClose /></div>
+        <div className="tile-stack"><Backups /><OldDocuments /></div>
+      </div>
     </div>
   );
 }
@@ -35,8 +35,7 @@ function Health() {
   }, []);
   useEffect(() => { void run(); }, [run, app.dataVersion]);
   return (
-    <>
-      <h3>Health check <button className="link" onClick={() => void run()}>Run again</button></h3>
+    <Panel title="Health check" action={<button className="link" onClick={() => void run()}>Run again</button>}>
       <ErrorBox error={err} />
       {!checks ? <p className="muted">Checking the books…</p> : (
         <ul className="checks">
@@ -48,7 +47,7 @@ function Health() {
           ))}
         </ul>
       )}
-    </>
+    </Panel>
   );
 }
 
@@ -66,8 +65,7 @@ function OldDocuments() {
     } catch (e) { setErr(asErr(e)); }
   };
   return (
-    <>
-      <h3>Old uploads</h3>
+    <Panel title="Old uploads">
       <ErrorBox error={err} />
       {docs && (docs.length === 0
         ? <p className="muted small">Nothing to clear: no rejected or unreadable uploads older than 90 days.</p>
@@ -77,7 +75,7 @@ function OldDocuments() {
           {docs.length > 10 && <p className="muted small">and {docs.length - 10} more</p>}
           <button className="danger" onClick={() => void clear()}>Delete them</button>
         </>)}
-    </>
+    </Panel>
   );
 }
 
@@ -103,11 +101,10 @@ function YearClose() {
   };
   const years = [0, 1, 2].map((n) => `${Number(lastEnd.slice(0, 4)) - n}${lastEnd.slice(4)}`);
   return (
-    <>
-      <h3>Close a financial year</h3>
+    <Panel title="Close a financial year">
       <p className="small">Closing locks the year so nothing more can be posted into it. The profit carries into the next year and closing stock
         becomes its opening stock by themselves; nothing has to be posted. Close a year once its accounts and returns are final.</p>
-      <label className="inline-form">Year ending<select value={end} onChange={(e) => setEnd(e.target.value)}>{years.map((y) => <option key={y} value={y}>{fmtDate(y)}</option>)}</select></label>
+      <div className="inline-form"><label>Year ending<select value={end} onChange={(e) => setEnd(e.target.value)}>{years.map((y) => <option key={y} value={y}>{fmtDate(y)}</option>)}</select></label></div>
       <ErrorBox error={err} />
       {p && (
         <div className="year-close">
@@ -119,6 +116,6 @@ function YearClose() {
             : <button className="primary" disabled={busy || p.blockers.length > 0} onClick={() => void close()}>Close the year</button>}
         </div>
       )}
-    </>
+    </Panel>
   );
 }

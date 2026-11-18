@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, type User } from '../api';
 import { useApp } from '../state';
-import { ErrorBox, ScreenHead } from '../components/ui';
+import { ErrorBox, Panel, ScreenHead } from '../components/ui';
 import { fmtDate } from '../format';
 
 type Err = { message: string; details?: unknown } | null;
@@ -12,9 +12,11 @@ export function Profile() {
   return (
     <div className="settings">
       <ScreenHead title="My profile" sub="Your own login. Business details are in Company settings." />
-      <Details />
-      <Password />
-      <Sessions />
+      <div className="tile-grid">
+        <Panel title="Your details"><Details /></Panel>
+        <Password />
+        <Sessions />
+      </div>
     </div>
   );
 }
@@ -73,8 +75,7 @@ function Password() {
     } catch (e) { setErr(asErr(e)); } finally { setBusy(false); }
   };
   return (
-    <>
-      <h3>Change password</h3>
+    <Panel title="Change password">
       <form className="form-grid narrow" onSubmit={(e) => { e.preventDefault(); void save(); }}>
         <label className="span-2">Current password<input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} required autoComplete="current-password" /></label>
         <label>New password<input type="password" value={next} onChange={(e) => setNext(e.target.value)} minLength={8} required autoComplete="new-password" /></label>
@@ -84,7 +85,7 @@ function Password() {
         <ErrorBox error={err} />
         <div className="form-actions"><button className="primary" type="submit" disabled={busy}>{busy ? 'Changing…' : 'Change password'}</button></div>
       </form>
-    </>
+    </Panel>
   );
 }
 
@@ -104,8 +105,7 @@ function Sessions() {
     } catch (e) { app.toast(e instanceof ApiError ? e.message : String(e), 'error'); }
   };
   return (
-    <>
-      <h3>Signed in</h3>
+    <Panel title="Signed in" wide>
       {list && (
         <table className="list">
           <thead><tr><th>Browser</th><th>Signed in</th><th>Expires</th><th /></tr></thead>
@@ -115,6 +115,6 @@ function Sessions() {
         </table>
       )}
       {others > 0 && <p><button onClick={() => void signOutOthers()}>Sign out everywhere else</button></p>}
-    </>
+    </Panel>
   );
 }

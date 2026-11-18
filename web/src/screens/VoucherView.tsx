@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, c, ApiError, type VoucherInput } from '../api';
 import { useApp } from '../state';
 import { useKeys } from '../keys';
-import { ErrorBox, Kbd, ScreenHead } from '../components/ui';
+import { ErrorBox, Kbd, Panel, ScreenHead } from '../components/ui';
 import { fmtDate, inr, pct, TYPE_LABEL } from '../format';
 
 interface Detail {
@@ -75,7 +75,7 @@ export function VoucherView({ params }: { params: { id: string } }) {
         {v.narration && <><dt>Narration</dt><dd>{v.narration}</dd></>}
       </dl>
 
-      <h3>Ledger entries</h3>
+      <Panel title="Ledger entries">
       <table className="list">
         <thead><tr><th>Ledger</th><th>Bill</th><th className="num">Debit ₹</th><th className="num">Credit ₹</th></tr></thead>
         <tbody>
@@ -92,22 +92,23 @@ export function VoucherView({ params }: { params: { id: string } }) {
         </tbody>
         <tfoot><tr><td colSpan={2}>Total</td><td className="num">{inr(v.totalMinor)}</td><td className="num">{inr(v.totalMinor)}</td></tr></tfoot>
       </table>
+      </Panel>
 
-      {v.inventory.length > 0 && <>
-        <h3>Stock movement</h3>
+      {(v.inventory.length > 0 || v.taxes.length > 0) && <div className="tile-grid">
+      {v.inventory.length > 0 && <Panel title="Stock movement">
         <table className="list">
           <thead><tr><th>Item</th><th>Godown</th><th className="num">Qty</th><th className="num">Unit cost ₹</th></tr></thead>
           <tbody>{v.inventory.map((m) => <tr key={m.lineNo}><td>{m.itemName}</td><td>{m.godown}</td><td className="num">{Number(m.qty)} {m.uom}</td><td className="num">{m.unitCost ? Number(m.unitCost).toFixed(2) : 'at running cost'}</td></tr>)}</tbody>
         </table>
-      </>}
+      </Panel>}
 
-      {v.taxes.length > 0 && <>
-        <h3>GST</h3>
+      {v.taxes.length > 0 && <Panel title="GST">
         <table className="list">
           <thead><tr><th>Line</th><th>HSN/SAC</th><th>Tax</th><th className="num">Taxable ₹</th><th className="num">Tax ₹</th></tr></thead>
           <tbody>{v.taxes.map((t, i) => <tr key={i}><td>{t.itemLineNo}</td><td>{t.hsnSac ?? '—'}</td><td>{t.component} {pct(t.ratePpm)}{t.reverseCharge ? ' (RCM)' : ''}{!t.itcEligible ? ' · no ITC' : ''}</td><td className="num">{inr(t.taxableMinor)}</td><td className="num">{inr(t.taxMinor)}</td></tr>)}</tbody>
         </table>
-      </>}
+      </Panel>}
+      </div>}
 
       <p className="audit muted small">Audit: chain position {v.chainSeq} · hash <code>{v.rowHash.slice(0, 16)}…</code> · posted {new Date(v.postedAt).toLocaleString('en-IN')} · {TYPE_LABEL[v.voucherType]} vouchers can't be edited in place; Alter posts a reversal plus a corrected voucher in one transaction.</p>
     </div>

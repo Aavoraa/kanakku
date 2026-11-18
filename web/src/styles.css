@@ -6,41 +6,53 @@
    system UI font (Segoe UI Variable on Windows).
    ===================================================================== */
 
-/* Black and gold. Dark is the default look (theme.ts); light keeps the same gold on warm ivory. */
+/* Two looks. Light (the default, theme.ts): soft lavender, white floating cards, violet fills, coloured card edges.
+   Dark: near-black panels with gold fills. Fills, glows and the page backdrop are tokens so each look sets its own. */
 :root {
-  --bg: #f7f4ec;
+  --bg: #eef0fa;
+  --bg-art: radial-gradient(420px 420px at 2% 4%, #d6c8ff 0%, transparent 70%), radial-gradient(380px 380px at 0% 52%, #ffd9ee 0%, transparent 70%),
+    radial-gradient(440px 440px at 4% 96%, #c9e4ff 0%, transparent 70%), radial-gradient(1100px 620px at 100% -10%, #e2deff 0%, transparent 60%),
+    radial-gradient(900px 560px at 40% 115%, #e3ecff 0%, transparent 60%), #eef0fa;
+  --glass: rgba(255, 255, 255, 0.52);
+  --glass-line: rgba(255, 255, 255, 0.78);
+  --glass-hover: rgba(255, 255, 255, 0.7);
+  --glass-shadow: 0 12px 40px rgba(70, 60, 170, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.9);
   --surface: #ffffff;
-  --surface-2: #faf6ec;
-  --surface-3: #f1eadb;
-  --text: #17140e;
-  --text-2: #3d3628;
-  --muted: #6f6656;
-  --line: #e9e1cf;
-  --line-strong: #d8ccb2;
-  --accent: #8a6206;
-  --accent-strong: #6e4e05;
-  --accent-soft: #fbf1d8;
+  --surface-2: #f5f6fd;
+  --surface-3: #eceefa;
+  --text: #1c1b33;
+  --text-2: #3b3a5c;
+  --muted: #6b6c8c;
+  --line: #e7e9f6;
+  --line-strong: #d6d9ef;
+  --accent: #5b3fe6;
+  --accent-strong: #4a2fd0;
+  --accent-soft: #efebff;
   --accent-ink: #ffffff;
-  --teal: #c99a2e;
-  --gold-grad: linear-gradient(135deg, #f7d77f 0%, #e2ab2c 50%, #b37f12 100%);
-  --gold-ink: #16120a;
-  --ok: #157f3d;
-  --ok-soft: #e7f6ec;
-  --bad: #c42b20;
+  --teal: #8b5cf6;
+  --fill-grad: linear-gradient(135deg, #7c4dff 0%, #6d4bf0 48%, #4f46e5 100%);
+  --fill-ink: #ffffff;
+  --fill-glow: rgba(109, 75, 240, 0.32);
+  --fill-badge: #5b3fe6;
+  --edge-1: #6d4bf0; --edge-2: #38bdf8; --edge-3: #a855f7; --edge-4: #10b981; --edge-5: #6366f1; --edge-6: #f472b6;
+  --ok: #0f7a43;
+  --ok-soft: #e3f7ec;
+  --bad: #d92d20;
   --bad-soft: #fdecea;
   --bad-ink: #ffffff;
   --warn: #9a5b06;
   --warn-bg: #fff6df;
   --warn-line: #f0c35b;
-  --sel: #fbecc0;
-  --kbd: #f5efe1;
-  --series-1: #c8921c;
-  --series-2: #8c8273;
-  --shadow-sm: 0 1px 2px rgba(60, 45, 10, 0.06), 0 1px 3px rgba(60, 45, 10, 0.06);
-  --shadow: 0 16px 40px rgba(60, 45, 10, 0.16), 0 2px 6px rgba(60, 45, 10, 0.06);
+  --sel: #e9e3ff;
+  --kbd: #f1f2fb;
+  --series-1: #6d4bf0;
+  --series-2: #0891b2;
+  --shadow-sm: 0 1px 2px rgba(70, 60, 170, 0.05), 0 8px 24px rgba(70, 60, 170, 0.08);
+  --shadow: 0 24px 60px rgba(70, 60, 170, 0.18), 0 4px 12px rgba(70, 60, 170, 0.06);
   --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
-  --radius: 12px;
-  --radius-sm: 8px;
+  --radius: 16px;
+  --radius-sm: 10px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --font: 'Inter', 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, Roboto, 'Noto Sans', 'Noto Sans Tamil', sans-serif;
   --mono: ui-monospace, 'Cascadia Mono', 'Cascadia Code', Consolas, monospace;
   color-scheme: light;
@@ -53,6 +65,7 @@
     --ok: #5fd38d; --ok-soft: #12291b; --bad: #ff7b72; --bad-soft: #3a1b1b; --bad-ink: #2b0b08; --warn: #f59e0b; --warn-bg: #33240a; --warn-line: #8a6a24;
     --sel: #3a2e10; --kbd: #1d1a14; --series-1: #e2ab2c; --series-2: #8e8576;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5); --shadow: 0 18px 44px rgba(0, 0, 0, 0.65);
+    --bg-art: radial-gradient(420px 420px at 0% 0%, rgba(226, 171, 44, 0.16) 0%, transparent 70%), radial-gradient(400px 400px at 4% 92%, rgba(179, 127, 18, 0.13) 0%, transparent 70%), #050505; --glass: rgba(24, 21, 15, 0.55); --glass-line: rgba(226, 171, 44, 0.16); --glass-hover: rgba(255, 255, 255, 0.06); --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05); --fill-grad: linear-gradient(135deg, #f7d77f 0%, #e2ab2c 50%, #b37f12 100%); --fill-ink: #16120a; --fill-glow: rgba(226, 171, 44, 0.28); --fill-badge: #f5c75a; --edge-1: transparent; --edge-2: transparent; --edge-3: transparent; --edge-4: transparent; --edge-5: transparent; --edge-6: transparent; --radius: 12px; --radius-sm: 8px;
     color-scheme: dark;
   }
 }
@@ -63,6 +76,7 @@
   --ok: #5fd38d; --ok-soft: #12291b; --bad: #ff7b72; --bad-soft: #3a1b1b; --bad-ink: #2b0b08; --warn: #f59e0b; --warn-bg: #33240a; --warn-line: #8a6a24;
   --sel: #3a2e10; --kbd: #1d1a14; --series-1: #e2ab2c; --series-2: #8e8576;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5); --shadow: 0 18px 44px rgba(0, 0, 0, 0.65);
+  --bg-art: radial-gradient(420px 420px at 0% 0%, rgba(226, 171, 44, 0.16) 0%, transparent 70%), radial-gradient(400px 400px at 4% 92%, rgba(179, 127, 18, 0.13) 0%, transparent 70%), #050505; --glass: rgba(24, 21, 15, 0.55); --glass-line: rgba(226, 171, 44, 0.16); --glass-hover: rgba(255, 255, 255, 0.06); --glass-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05); --fill-grad: linear-gradient(135deg, #f7d77f 0%, #e2ab2c 50%, #b37f12 100%); --fill-ink: #16120a; --fill-glow: rgba(226, 171, 44, 0.28); --fill-badge: #f5c75a; --edge-1: transparent; --edge-2: transparent; --edge-3: transparent; --edge-4: transparent; --edge-5: transparent; --edge-6: transparent; --radius: 12px; --radius-sm: 8px;
   color-scheme: dark;
 }
 
@@ -611,27 +625,107 @@ button.post { margin-top: 0.35rem; padding: 0.7rem; font-weight: 650; }
   .chart-head .legend { gap: 0.6rem; }
 }
 
-/* ---------- black and gold finish ---------- */
-/* Gold fills: the active menu item, primary buttons, brand mark and avatars, with dark text on top. */
-.nav-item.active { background: var(--gold-grad); color: var(--gold-ink); box-shadow: 0 4px 14px color-mix(in srgb, #e2ab2c 28%, transparent); }
-.nav-item.active .icon-svg { color: var(--gold-ink); }
-/* The plain .nav-item:hover rule is more specific than .nav-item.active: keep the gold fill and dark ink on hover. */
-.nav-item.active:hover:not(:disabled) { background: var(--gold-grad); color: var(--gold-ink); filter: brightness(1.06); }
-.nav-item.active:hover .icon-svg { color: var(--gold-ink); }
-.nav-item.active .nav-badge { background: var(--gold-ink); color: #f5c75a; }
-button.primary { background: var(--gold-grad); border-color: color-mix(in srgb, #b37f12 70%, transparent); color: var(--gold-ink); box-shadow: 0 2px 10px color-mix(in srgb, #e2ab2c 25%, transparent); }
-button.primary:hover:not(:disabled) { background: var(--gold-grad); border-color: #f5c75a; filter: brightness(1.07); }
-.brand-mark, .avatar, .chat-avatar { background: var(--gold-grad); color: var(--gold-ink); box-shadow: 0 4px 12px color-mix(in srgb, #e2ab2c 30%, transparent); }
-.avatar:hover:not(:disabled) { background: var(--gold-grad); filter: brightness(1.07); }
-.auth-brand { background: var(--gold-grad); -webkit-background-clip: text; background-clip: text; }
-.bell-count { background: var(--gold-grad); color: var(--gold-ink); }
-/* Panels: near-black with a faint warm edge and a soft gold glow on hover. */
+/* ---------- finish: filled accents, cards, backdrop ---------- */
+/* Filled accents (violet in light, gold in dark): the active menu item, primary buttons, brand mark and avatars. */
+.nav-item.active { background: var(--fill-grad); color: var(--fill-ink); box-shadow: 0 4px 14px var(--fill-glow); }
+.nav-item.active .icon-svg { color: var(--fill-ink); }
+/* The plain .nav-item:hover rule is more specific than .nav-item.active: keep the fill and its ink on hover. */
+.nav-item.active:hover:not(:disabled) { background: var(--fill-grad); color: var(--fill-ink); filter: brightness(1.06); }
+.nav-item.active:hover .icon-svg { color: var(--fill-ink); }
+.nav-item.active .nav-badge { background: var(--fill-ink); color: var(--fill-badge); }
+button.primary { background: var(--fill-grad); border-color: transparent; color: var(--fill-ink); box-shadow: 0 2px 10px var(--fill-glow); }
+button.primary:hover:not(:disabled) { background: var(--fill-grad); border-color: transparent; filter: brightness(1.07); }
+.brand-mark, .avatar, .chat-avatar { background: var(--fill-grad); color: var(--fill-ink); box-shadow: 0 4px 12px var(--fill-glow); }
+.avatar:hover:not(:disabled) { background: var(--fill-grad); filter: brightness(1.07); }
+.auth-brand { background: var(--fill-grad); -webkit-background-clip: text; background-clip: text; }
+.bell-count { background: var(--fill-grad); color: var(--fill-ink); }
+/* Panels: a faint accent-tinted edge and a soft accent glow on hover. */
 .card, .kpi, .tile, .list, .report { border-color: color-mix(in srgb, var(--accent) 14%, var(--line)); }
 .kpi:hover:not(:disabled), button.tile:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); box-shadow: var(--shadow-sm), 0 8px 22px color-mix(in srgb, var(--accent) 14%, transparent); }
-/* KPI icons: round, gold on a dark disc with a gold ring. */
+/* KPI icons: round, accent-coloured, with a ring. */
 .kpi-icon { width: 38px; height: 38px; border-radius: 50%; color: var(--accent); background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 22%, var(--surface-2)), var(--surface-2)); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
 .kpi-value, .tile-value { color: var(--text); }
 th { background: var(--surface-2); color: color-mix(in srgb, var(--accent) 35%, var(--muted)); }
 .tabs button.on, .menu-pop button.on { color: var(--accent); }
-.sidebar { background: color-mix(in srgb, var(--surface) 70%, var(--bg)); }
+.sidebar { background: color-mix(in srgb, var(--surface) 72%, transparent); backdrop-filter: saturate(1.4) blur(14px); }
 .tile-warn { border-color: var(--warn-line); }
+
+/* Smooth, floating feel: the page backdrop shows through the bars, cards lift gently, KPI cards carry a coloured edge. */
+body { background: var(--bg-art); background-attachment: fixed; }
+.topbar { background: color-mix(in srgb, var(--surface) 68%, transparent); }
+@media (prefers-reduced-motion: no-preference) {
+  .kpi, .tile, .card, .nav-item, button { transition: background-color 0.2s var(--ease), border-color 0.2s var(--ease), color 0.2s var(--ease), box-shadow 0.25s var(--ease), transform 0.25s var(--ease), filter 0.2s var(--ease); }
+  .kpi:hover:not(:disabled), button.tile:hover:not(:disabled) { transform: translateY(-2px); }
+}
+.kpis > .kpi { position: relative; overflow: hidden; }
+.kpis > .kpi::after { content: ''; position: absolute; right: 0; top: 16px; bottom: 16px; width: 5px; border-radius: 6px 0 0 6px; background: var(--edge-1); }
+.kpis > .kpi:nth-child(6n+2)::after { background: var(--edge-2); }
+.kpis > .kpi:nth-child(6n+3)::after { background: var(--edge-3); }
+.kpis > .kpi:nth-child(6n+4)::after { background: var(--edge-4); }
+.kpis > .kpi:nth-child(6n+5)::after { background: var(--edge-5); }
+.kpis > .kpi:nth-child(6n+6)::after { background: var(--edge-6); }
+
+/* ---------- glass sidebar ---------- */
+/* A frosted panel floating over the backdrop: translucent fill, blur, a light rim and a soft shadow. */
+.sidebar {
+  margin: 12px 0 12px 12px; height: auto; border-radius: 22px; overflow: hidden;
+  background: var(--glass); border: 1px solid var(--glass-line); box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(22px) saturate(1.7); backdrop-filter: blur(22px) saturate(1.7);
+}
+.sidebar .brand { padding: 1.1rem 1.15rem 0.95rem; }
+.sidebar-foot { border-top-color: var(--glass-line); }
+.nav-item:hover:not(:disabled) { background: var(--glass-hover); }
+.nav-title { opacity: 0.85; }
+@media (max-width: 900px) {
+  .sidebar { margin: 0; inset: 8px auto 8px 8px; height: auto; }
+  .sidebar:not(.open) { transform: translateX(calc(-100% - 24px)); }
+}
+
+/* ---------- tiles: every screen lays its sections out as tiles on a grid ---------- */
+.tile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 1rem; align-items: start; margin-bottom: 1rem; }
+.tile-grid > .wide, .tile-grid > .empty-state, .tile-grid > .error-box, .tile-grid > .warn, .tile-grid > .hint-bar { grid-column: 1 / -1; margin: 0; }
+.tile-columns { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 1rem; align-items: start; margin-bottom: 1rem; }
+.tile-stack { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+@media (max-width: 1100px) { .tile-columns { grid-template-columns: minmax(0, 1fr); } }
+.panel { min-width: 0; padding: 1.1rem 1.25rem; background: var(--surface); border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--line)); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
+.panel + .panel, .panel + .tile-grid, .tile-grid + .panel { margin-top: 1rem; }
+.tile-grid > .panel + .panel, .tile-stack > .panel + .panel { margin-top: 0; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem 0.75rem; margin-bottom: 0.85rem; }
+.panel-head h3 { margin: 0; }
+.panel-head .head-actions { margin-left: auto; }
+.panel > h3:first-child { margin-top: 0; }
+.panel > :last-child { margin-bottom: 0; }
+.panel .form-grid.narrow { max-width: none; }
+.panel .inline-form:first-child { margin-top: 0; }
+.panel table.list, .panel table.report { box-shadow: none; }
+.panel > .empty-state { padding: 1.4rem 1rem; }
+.page .settings { max-width: none; }
+@media (max-width: 640px) { .panel { padding: 0.9rem 0.95rem; } }
+
+/* Figure tiles carry the same coloured edge as the Home KPI cards. */
+.tiles > .tile { position: relative; overflow: hidden; }
+.tiles > .tile::after { content: ''; position: absolute; right: 0; top: 14px; bottom: 14px; width: 4px; border-radius: 6px 0 0 6px; background: var(--edge-1); }
+.tiles > .tile:nth-child(6n+2)::after { background: var(--edge-2); }
+.tiles > .tile:nth-child(6n+3)::after { background: var(--edge-3); }
+.tiles > .tile:nth-child(6n+4)::after { background: var(--edge-4); }
+.tiles > .tile:nth-child(6n+5)::after { background: var(--edge-5); }
+.tiles > .tile:nth-child(6n+6)::after { background: var(--edge-6); }
+
+/* Tiles that switch a screen's view (Masters): the chosen one is outlined in the accent. */
+.tab-tiles { margin-bottom: 1rem; }
+.tab-tiles > .tile { cursor: pointer; }
+.tab-tiles > .tile.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface)); box-shadow: var(--ring); }
+.tab-tiles > .tile.on .tile-label { color: var(--accent-strong); }
+.tab-tiles .tile-label { display: flex; align-items: center; gap: 0.4rem; width: 100%; }
+.tab-tiles .tile-label kbd { margin-left: auto; }
+/* Spacing where a tile follows other blocks, and inside tiles. */
+.page :is(table, .tiles, .tile-grid, .tile-columns, .t-account, .facts, .petty-panel, .due-box, .cmp-settings, .reminders, .error-box, .warn, p) + .panel { margin-top: 1rem; }
+.panel > * + table.list, .panel > * + table.report { margin-top: 0.85rem; }
+.panel .dropzone { margin-top: 0.9rem; }
+.panel .upload-options { margin: 0; }
+.nav-scroll { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--accent) 28%, transparent) transparent; }
+/* A form inside a tile follows the tile's own width: two columns when there is room, one when the tile is narrow. */
+.panel { container-type: inline-size; }
+.panel .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@container (max-width: 440px) { .panel .form-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; } .tab-tiles .tile-label kbd { display: none; } }

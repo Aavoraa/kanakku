@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, c, ApiError, type ComplianceItem, type ComplianceSettings, type ComplianceTask } from '../api';
 import { useApp } from '../state';
-import { Empty, ErrorBox, ScreenHead } from '../components/ui';
+import { Empty, ErrorBox, Panel, ScreenHead, Stat } from '../components/ui';
 import { addDays, fmtDate, fromMinor, inr } from '../format';
 import { Reminders } from '../components/Reminders';
 import { desktopOn, desktopSupported, disableDesktop, dueText, enableDesktop } from '../notify';
@@ -62,16 +62,27 @@ export function Compliance() {
       <DesktopToggle />
 
       {!view ? <p className="muted">Loading…</p> : <>
-        <h3>Needs attention</h3>
-        {attention.length === 0 ? <Empty>Nothing overdue or due soon in this period.</Empty> : <ItemList items={attention} onChanged={changed} />}
-        <h3>Coming up</h3>
-        {upcoming.length === 0 ? <Empty>Nothing else falls due in this period.</Empty> : <ItemList items={upcoming} onChanged={changed} />}
-        <h3>Done</h3>
-        {done.length === 0 ? <Empty>Nothing marked filed or done in this period yet.</Empty> : <ItemList items={done} onChanged={changed} />}
-        <h3>Your reminders</h3>
-        <p className="muted small">Workings, calculations, adjustments and anything else with a date: they show in the bell and on this calendar.</p>
-        <TaskForm today={view.today} onSaved={changed} />
-        {view.tasks.length > 0 && <TaskList tasks={view.tasks} onChanged={changed} />}
+        <section className="tiles" aria-label="This period">
+          <Stat label="Overdue" value={attention.filter((i) => i.status === 'OVERDUE').length} warn={attention.some((i) => i.status === 'OVERDUE')} />
+          <Stat label="Due soon" value={attention.filter((i) => i.status === 'DUE_SOON').length} />
+          <Stat label="Coming up" value={upcoming.length} />
+          <Stat label="Done" value={done.length} />
+          <Stat label="Your reminders" value={view.tasks.length} />
+        </section>
+        <Panel title="Needs attention">
+          {attention.length === 0 ? <Empty>Nothing overdue or due soon in this period.</Empty> : <ItemList items={attention} onChanged={changed} />}
+        </Panel>
+        <Panel title="Coming up">
+          {upcoming.length === 0 ? <Empty>Nothing else falls due in this period.</Empty> : <ItemList items={upcoming} onChanged={changed} />}
+        </Panel>
+        <Panel title="Done">
+          {done.length === 0 ? <Empty>Nothing marked filed or done in this period yet.</Empty> : <ItemList items={done} onChanged={changed} />}
+        </Panel>
+        <Panel title="Your reminders">
+          <p className="muted small">Workings, calculations, adjustments and anything else with a date: they show in the bell and on this calendar.</p>
+          <TaskForm today={view.today} onSaved={changed} />
+          {view.tasks.length > 0 && <TaskList tasks={view.tasks} onChanged={changed} />}
+        </Panel>
       </>}
     </div>
   );

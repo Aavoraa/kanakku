@@ -4,7 +4,7 @@ import { useApp } from '../state';
 import { useKeys } from '../keys';
 import { ItemForm, LedgerForm, PartyForm } from '../components/QuickCreate';
 import { EditGroup, EditItem, EditLedger, EditParty } from '../components/EditMasters';
-import { ErrorBox, Kbd, ScreenHead } from '../components/ui';
+import { ErrorBox, Kbd, Panel, ScreenHead } from '../components/ui';
 import { drcr, fyStart, inr, pct } from '../format';
 
 type Tab = 'parties' | 'ledgers' | 'items' | 'groups';
@@ -40,9 +40,19 @@ export function Masters() {
         {offCount > 0 && <label className="check small"><input type="checkbox" checked={showOff} onChange={(e) => setShowOff(e.target.checked)} /> Show {offCount} switched off</label>}
         {tab !== 'groups' && <button className="primary" onClick={() => setCreating(true)}>Create <Kbd>Alt+C</Kbd></button>}
       </ScreenHead>
-      <div className="tabs" role="tablist">
-        {(['parties', 'ledgers', 'items', 'groups'] as Tab[]).map((t, i) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}><Kbd>{`Alt+${i + 1}`}</Kbd> {t[0].toUpperCase() + t.slice(1)}</button>
+      {/* One tile per list, with how many it holds; the chosen tile shows its list below. */}
+      <div className="tiles tab-tiles" role="tablist">
+        {([
+          ['parties', masters.parties.filter((p) => p.status !== 'INACTIVE').length, 'customers and suppliers'],
+          ['ledgers', masters.ledgers.filter((l) => !l.counterpartyId && l.isActive !== false).length, 'accounts other than parties'],
+          ['items', masters.items.filter((i) => i.isActive !== false).length, 'stock items'],
+          ['groups', app.masters.groups.length, 'chart of accounts heads'],
+        ] as [Tab, number, string][]).map(([t, n, note], i) => (
+          <button key={t} role="tab" aria-selected={tab === t} className={`tile ${tab === t ? 'on' : ''}`} onClick={() => setTab(t)}>
+            <span className="tile-label">{t[0].toUpperCase() + t.slice(1)} <Kbd>{`Alt+${i + 1}`}</Kbd></span>
+            <span className="tile-value num">{n}</span>
+            <span className="tile-note">{note}</span>
+          </button>
         ))}
       </div>
 
@@ -119,12 +129,14 @@ function Groups({ filter }: { filter: string }) {
         ))}</tbody>
       </table>
       {renaming && <EditGroup group={renaming} onClose={() => setRenaming(null)} />}
-      <form className="inline-form" onSubmit={(e) => { e.preventDefault(); void add(); }}>
-        <label>New sub-group<input value={name} onChange={(e) => setName(e.target.value)} required /></label>
-        <label>Under<select value={parentId} onChange={(e) => setParentId(e.target.value)}>{app.masters.groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select></label>
-        <button type="submit">Add group</button>
-        <ErrorBox error={err} />
-      </form>
+      <Panel title="Add a sub-group">
+        <form className="inline-form" onSubmit={(e) => { e.preventDefault(); void add(); }}>
+          <label className="grow">New sub-group<input value={name} onChange={(e) => setName(e.target.value)} required /></label>
+          <label className="grow">Under<select value={parentId} onChange={(e) => setParentId(e.target.value)}>{app.masters.groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}</select></label>
+          <button type="submit">Add group</button>
+          <ErrorBox error={err} />
+        </form>
+      </Panel>
     </>
   );
 }
@@ -160,6 +172,8 @@ export function Settings() {
   return (
     <div className="settings">
       <ScreenHead title="Company settings" sub={`${co.name} · books from ${co.booksFrom} · state ${co.stateCode} ${app.status.states[co.stateCode] ?? ''}`} />
+      <div className="tile-columns">
+      <Panel title="Business details">
       <form className="form-grid narrow" onSubmit={(e) => { e.preventDefault(); void save(); }}>
         <label>Business name<input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} required /></label>
         <label>GSTIN<input value={gstin} onChange={(e) => setGstin(e.target.value.toUpperCase())} maxLength={15} /></label>
@@ -179,16 +193,22 @@ export function Settings() {
         <ErrorBox error={err} />
         <div className="form-actions"><button className="primary" type="submit">Save</button></div>
       </form>
-      <h3>Audit trail</h3>
-      <p>Every posted voucher is hash-chained to the one before it. Re-walk the chain to prove nothing was edited.</p>
-      <button onClick={() => void api.get<typeof chain>(c('/audit/verify-chain')).then(setChain)}>Verify hash chain</button>
-      {chain && (chain.ok
-        ? <p className="ok">Intact: {chain.checked} vouchers verified. Head <code>{chain.head?.slice(0, 24)}…</code></p>
-        : <p className="bad">Broken at voucher {chain.brokenAt?.voucherNo}. The books were modified outside the posting engine.</p>)}
-      <h3>AI</h3>
-      <p>{app.status.aiEnabled ? `Bill reading and voice are on (model ${app.status.model}).` : 'Bill reading from PDFs and photos, and voice, are off.'}</p>
-      <button onClick={() => app.setAiKeyOpen(true)}>{app.status.aiEnabled ? 'Manage API key' : 'Enter API key'}</button>
-      <Backups />
+      </Panel>
+      <div className="tile-stack">
+        <Panel title="Audit trail">
+          <p>Every posted voucher is hash-chained to the one before it. Re-walk the chain to prove nothing was edited.</p>
+          <button onClick={() => void api.get<typeof chain>(c('/audit/verify-chain')).then(setChain)}>Verify hash chain</button>
+          {chain && (chain.ok
+            ? <p className="ok">Intact: {chain.checked} vouchers verified. Head <code>{chain.head?.slice(0, 24)}…</code></p>
+            : <p className="bad">Broken at voucher {chain.brokenAt?.voucherNo}. The books were modified outside the posting engine.</p>)}
+        </Panel>
+        <Panel title="AI">
+          <p>{app.status.aiEnabled ? `Bill reading and voice are on (model ${app.status.model}).` : 'Bill reading from PDFs and photos, and voice, are off.'}</p>
+          <button onClick={() => app.setAiKeyOpen(true)}>{app.status.aiEnabled ? 'Manage API key' : 'Enter API key'}</button>
+        </Panel>
+        <Backups />
+      </div>
+      </div>
     </div>
   );
 }
@@ -217,8 +237,7 @@ export function Backups() {
   };
   const size = (b: number) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.ceil(b / 1e3)} KB`);
   return (
-    <>
-      <h3>Backups</h3>
+    <Panel title="Backups">
       <p>A copy of the whole database (every company on this computer) is saved once a day; the last 14 are kept.
         Keep a recent one somewhere else too, such as a USB drive or cloud storage.</p>
       {err && <p className="muted">{err}</p>}
@@ -235,6 +254,6 @@ export function Backups() {
           )}
         </>
       )}
-    </>
+    </Panel>
   );
 }

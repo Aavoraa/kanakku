@@ -106,7 +106,9 @@ function Shell({ toasts }: { toasts: { id: number; msg: string; kind: string }[]
           </div>
         </header>
 
-        <main className="content" key={`${route.screen}-${app.stackDepth}`}>
+        {/* The company is part of the key: switching company while already on Home (which leaves the route as it was)
+            must still reload the screen, or it keeps showing the previous company's figures. */}
+        <main className="content" key={`${app.company.id}-${route.screen}-${app.stackDepth}`}>
           <div className="page"><Screen route={route} /></div>
         </main>
       </div>

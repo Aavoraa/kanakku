@@ -84,3 +84,24 @@ export function ErrorBox({ error }: { error: { message: string; details?: unknow
     </div>
   );
 }
+
+/** One tile on a screen's grid: a card with an optional heading and an action beside it. `wide` takes the whole row. */
+export function Panel({ title, action, wide, className, children }: { title?: ReactNode; action?: ReactNode; wide?: boolean; className?: string; children: ReactNode }) {
+  return (
+    <section className={['panel', wide && 'wide', className].filter(Boolean).join(' ')}>
+      {(title || action) && <div className="panel-head">{title && <h3>{title}</h3>}{action}</div>}
+      {children}
+    </section>
+  );
+}
+
+/** A figure tile for a screen's summary row: label, value, and an optional note under it. */
+export function Stat({ label, value, note, warn, bad }: { label: ReactNode; value: ReactNode; note?: ReactNode; warn?: boolean; bad?: boolean }) {
+  return (
+    <div className={`tile ${warn ? 'tile-warn' : ''}`}>
+      <span className="tile-label">{label}</span>
+      <span className="tile-value num">{value}</span>
+      {note && <span className={`tile-note ${bad ? 'bad' : ''}`}>{note}</span>}
+    </div>
+  );
+}

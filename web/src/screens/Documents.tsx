@@ -3,7 +3,7 @@ import { api, c, ApiError, type VoucherInput } from '../api';
 import { useApp } from '../state';
 import { useKeys } from '../keys';
 import { Picker, type Option } from '../components/Picker';
-import { Empty, ErrorBox, Kbd, ScreenHead } from '../components/ui';
+import { Empty, ErrorBox, Kbd, Panel, ScreenHead } from '../components/ui';
 import { fmtDate, fromMinor, inr, TYPE_LABEL } from '../format';
 import { DOC_STATUS, ReviewDoc } from './Review';
 import { AiDataNotice } from '../components/Privacy';
@@ -82,6 +82,8 @@ export function DocumentsQueue({ params }: { params?: { upload?: boolean } }) {
       <ScreenHead title="Documents" sub="Bills, invoices, bank statements, workings and invoice registers become entries. You check, then post.">
         <button className="primary" onClick={() => fileRef.current?.click()}>Upload <Kbd>Ctrl+U</Kbd></button>
       </ScreenHead>
+      <div className="tile-columns">
+      <Panel title="Upload">
       <div className="upload-options">
         <label>Document type
           <select value={docType} onChange={(e) => setDocType(e.target.value)}>
@@ -111,15 +113,19 @@ export function DocumentsQueue({ params }: { params?: { upload?: boolean } }) {
           </label>
         )}
       </div>
+      <div className={`dropzone ${dragging ? 'over' : ''}`} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files.length) void upload(e.dataTransfer.files); }}
+        onClick={() => fileRef.current?.click()} onKeyDown={(e) => { if (e.key === 'Enter') fileRef.current?.click(); }} role="button" tabIndex={0}>
+        Drop files here or click to choose · PDF, photo, Excel (.xlsx) or CSV
+      </div>
+      </Panel>
+      <Panel title="Before you upload">
       {!app.status.aiEnabled && <div className="warn small">AI is off: Excel and CSV files (bank statements, journal sheets, invoice registers) are read without it. PDFs, photos and free-form workings need it. <button className="link" onClick={() => app.setAiKeyOpen(true)}>Enter your API key</button></div>}
       {app.status.aiEnabled && <AiDataNotice compact />}
       <input ref={fileRef} type="file" multiple hidden
         accept="application/pdf,image/jpeg,image/png,image/webp,.csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         onChange={(e) => { if (e.target.files?.length) void upload(e.target.files); e.target.value = ''; }} />
-      <div className={`dropzone ${dragging ? 'over' : ''}`} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)}
-        onDrop={(e) => { e.preventDefault(); setDragging(false); if (e.dataTransfer.files.length) void upload(e.dataTransfer.files); }}
-        onClick={() => fileRef.current?.click()} onKeyDown={(e) => { if (e.key === 'Enter') fileRef.current?.click(); }} role="button" tabIndex={0}>
-        Drop files here or click to choose · PDF, photo, Excel (.xlsx) or CSV
+      </Panel>
       </div>
       {uploadErrors.map((e) => <div key={e} className="error-box">{e}</div>)}
       {docs.length === 0 ? <Empty>No documents yet.</Empty> : (

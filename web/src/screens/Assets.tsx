@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, c, ApiError, type ComplianceItem } from '../api';
 import { useApp } from '../state';
 import { Picker, type Option } from '../components/Picker';
-import { Empty, ErrorBox, Modal, ScreenHead } from '../components/ui';
+import { Empty, ErrorBox, Modal, ScreenHead, Stat } from '../components/ui';
 import { addDays, fmtDate, inr, uid } from '../format';
 import { dueText } from '../notify';
 
@@ -46,6 +46,14 @@ export function Assets() {
         <label className="check small"><input type="checkbox" checked={showRetired} onChange={(e) => setShowRetired(e.target.checked)} /> Show retired</label>
         <button className="primary" onClick={() => setAdding(true)}>Add asset</button>
       </ScreenHead>
+      {assets && assets.length > 0 && (
+        <section className="tiles" aria-label="Summary">
+          <Stat label="Assets in use" value={assets.filter((a) => a.active).length} />
+          <Stat label="Cost" value={`₹${inr(assets.reduce((s, a) => s + BigInt(a.costMinor ?? '0'), 0n))}`} />
+          <Stat label="Upkeep spent" value={`₹${inr(assets.reduce((s, a) => s + BigInt(a.upkeepMinor), 0n))}`} />
+          <Stat label="Upkeep due" value={soon.length} warn={soon.some((d) => d.status === 'OVERDUE')} note={soon.length ? 'overdue or due soon' : 'nothing due soon'} />
+        </section>
+      )}
       {soon.length > 0 && (
         <div className="due-box">
           <h2>Upkeep due</h2>

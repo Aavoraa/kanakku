@@ -3,7 +3,7 @@ import { api, c, type TreeNode } from '../api';
 import { useApp } from '../state';
 import { useKeys } from '../keys';
 import { Picker } from '../components/Picker';
-import { Empty, Kbd, ScreenHead, Tree } from '../components/ui';
+import { Empty, Kbd, Panel, ScreenHead, Stat, Tree } from '../components/ui';
 import { drcr, fmtDate, fyStart, inr, pct } from '../format';
 
 function useReport<T>(path: string | null, deps: unknown[]) {
@@ -36,9 +36,17 @@ export function TrialBalance() {
   const app = useApp();
   const [asOf, setAsOf] = useState(app.status.today);
   const { data } = useReport<{ groups: TreeNode[]; totalDebitMinor: string; totalCreditMinor: string; fyStart: string }>(`/reports/trial-balance?as_of=${asOf}`, []);
+  const diff = data ? BigInt(data.totalDebitMinor) - BigInt(data.totalCreditMinor) : 0n;
   return (
     <div>
       <ScreenHead title="Trial Balance" sub={`as at ${fmtDate(asOf)} · ${app.company.name}`}><DateField label="As at" value={asOf} onChange={setAsOf} hotkey /></ScreenHead>
+      {data && (
+        <section className="tiles" aria-label="Totals">
+          <Stat label="Total debit" value={`₹${inr(data.totalDebitMinor)}`} />
+          <Stat label="Total credit" value={`₹${inr(data.totalCreditMinor)}`} />
+          <Stat label="Difference" value={diff === 0n ? 'Agrees' : `₹${inr(diff, { abs: true })}`} warn={diff !== 0n} note={diff === 0n ? 'debits equal credits' : 'check opening balances'} />
+        </section>
+      )}
       {data && (
         <table className="report">
           <thead><tr><th>Particulars</th><th className="num">Debit ₹</th><th className="num">Credit ₹</th></tr></thead>
@@ -65,6 +73,14 @@ export function ProfitLoss() {
       <ScreenHead title="Profit & Loss A/c" sub={`${fmtDate(from)} to ${fmtDate(to)}`}>
         <DateField label="From" value={from} onChange={setFrom} hotkey /><DateField label="To" value={to} onChange={setTo} />
       </ScreenHead>
+      {data && (
+        <section className="tiles" aria-label="Results">
+          <Stat label={gp >= 0n ? 'Gross profit' : 'Gross loss'} value={`₹${inr(gp, { abs: true })}`} warn={gp < 0n} />
+          <Stat label={np >= 0n ? 'Net profit' : 'Net loss'} value={`₹${inr(np, { abs: true })}`} warn={np < 0n} />
+          <Stat label="Opening stock" value={`₹${inr(data.openingStockMinor)}`} />
+          <Stat label="Closing stock" value={`₹${inr(data.closingStockMinor)}`} />
+        </section>
+      )}
       {data && (
         <div className="t-account">
           <table className="report">
@@ -102,6 +118,11 @@ export function BalanceSheet() {
     <div>
       <ScreenHead title="Balance Sheet" sub={`as at ${fmtDate(asOf)}`}><DateField label="As at" value={asOf} onChange={setAsOf} hotkey /></ScreenHead>
       {data && <>
+        <section className="tiles" aria-label="Totals">
+          <Stat label="Liabilities" value={`₹${inr(data.totalLiabilitiesMinor)}`} />
+          <Stat label="Assets" value={`₹${inr(data.totalAssetsMinor)}`} />
+          <Stat label="Difference" value={data.differenceMinor === '0' ? 'Balances' : `₹${inr(data.differenceMinor, { abs: true })}`} warn={data.differenceMinor !== '0'} />
+        </section>
         {data.differenceMinor !== '0' && <div className="error-box">Difference of ₹{inr(data.differenceMinor)} — check opening balances.</div>}
         <div className="t-account">
           <table className="report">
@@ -138,6 +159,14 @@ export function Ageing({ params }: { params?: { side?: 'receivable' | 'payable' 
         <label>Side<select value={side} onChange={(e) => setSide(e.target.value as typeof side)}><option value="receivable">Receivables</option><option value="payable">Payables</option></select></label>
         <DateField label="As at" value={asOf} onChange={setAsOf} hotkey />
       </ScreenHead>
+      {data && data.parties.length > 0 && (
+        <section className="tiles" aria-label="Ageing buckets">
+          {/* Six tiles fit one row: "on account" rides on the Total tile as a note. */}
+          {cols.filter(([k]) => k !== 'unadjusted').map(([k, l]) => <Stat key={k} label={k === 'total' || k === 'notDue' ? l : `${l} days`} value={`₹${inr(data.totals[k] ?? '0')}`}
+            warn={(k === 'd61_90' || k === 'd90plus') && BigInt(data.totals[k] ?? '0') !== 0n}
+            note={k === 'total' && BigInt(data.totals.unadjusted ?? '0') !== 0n ? `₹${inr(data.totals.unadjusted)} on account` : undefined} />)}
+        </section>
+      )}
       {data && data.parties.length === 0 ? <Empty>No open bills.</Empty> : data && (
         <table className="list">
           <thead><tr><th>Party</th>{cols.map(([, l]) => <th key={l} className="num">{l}</th>)}</tr></thead>
@@ -187,6 +216,14 @@ export function LedgerStatement({ params }: { params?: { ledgerId?: string; from
         <DateField label="From" value={from} onChange={setFrom} hotkey /><DateField label="To" value={to} onChange={setTo} />
       </ScreenHead>
       {data && (
+        <section className="tiles" aria-label="Summary">
+          <Stat label="Opening" value={drcr(data.openingMinor)} />
+          <Stat label="Debits" value={`₹${inr(data.totalDebitMinor)}`} />
+          <Stat label="Credits" value={`₹${inr(data.totalCreditMinor)}`} />
+          <Stat label="Closing" value={drcr(data.closingMinor)} note={`${data.lines.length} entries`} />
+        </section>
+      )}
+      {data && (
         <table className="list selectable">
           <thead><tr><th>Date</th><th>Particulars</th><th>Type</th><th>No.</th><th className="num">Debit ₹</th><th className="num">Credit ₹</th><th className="num">Balance</th></tr></thead>
           <tbody>
@@ -220,6 +257,13 @@ export function StockSummary() {
   return (
     <div>
       <ScreenHead title="Stock Summary" sub={`closing stock as at ${fmtDate(asOf)}`}><DateField label="As at" value={asOf} onChange={setAsOf} hotkey /></ScreenHead>
+      {data && (
+        <section className="tiles" aria-label="Summary">
+          <Stat label="Items" value={data.length} />
+          <Stat label="In stock" value={data.filter((r) => Number(r.qty) > 0).length} note="items with quantity on hand" />
+          <Stat label="Stock value" value={`₹${inr(total)}`} />
+        </section>
+      )}
       <table className="list">
         <thead><tr><th>Item</th><th>HSN</th><th>Method</th><th className="num">Quantity</th><th className="num">Rate ₹</th><th className="num">Value ₹</th></tr></thead>
         <tbody>{data?.map((r) => <tr key={r.itemId}><td>{r.name}</td><td>{r.hsnSac ?? '—'}</td><td>{r.method === 'FIFO' ? 'FIFO' : 'Wtd. avg.'}</td><td className="num">{Number(r.qty)} {r.uom}</td><td className="num">{r.rate}</td><td className="num">{inr(r.valueMinor)}</td></tr>)}</tbody>
@@ -246,6 +290,12 @@ export function GstSummary() {
         <DateField label="From" value={from} onChange={setFrom} hotkey /><DateField label="To" value={to} onChange={setTo} />
       </ScreenHead>
       {data && <>
+        <section className="tiles" aria-label="Summary">
+          <Stat label="Output tax" value={`₹${inr(data.byComponent.reduce((s, r) => s + BigInt(r.outputMinor), 0n))}`} />
+          <Stat label="Input credit" value={`₹${inr(data.byComponent.reduce((s, r) => s + BigInt(r.itcMinor), 0n))}`} />
+          <Stat label="Payable in cash" value={`₹${inr(data.netPayableMinor)}`} />
+          <Stat label="Credit carried" value={`₹${inr(data.carryForwardMinor)}`} />
+        </section>
         <table className="list">
           <thead><tr><th>Tax</th><th className="num">Output ₹</th><th className="num">Input credit ₹</th><th className="num">Paid by credit ₹</th><th className="num">RCM (cash) ₹</th><th className="num">Cash payable ₹</th><th className="num">Credit carried ₹</th></tr></thead>
           <tbody>{data.byComponent.map((r) => (
@@ -260,13 +310,14 @@ export function GstSummary() {
         </table>
         <p className="muted small">Credit is set off in the legal order: IGST credit first (against IGST, then CGST and SGST); CGST credit never pays SGST,
           nor SGST credit CGST. Tax under reverse charge is paid in cash.</p>
-        <h3>Outward supplies by rate</h3>
-        {data.salesByRate.length === 0 ? <Empty>No taxable sales in this period.</Empty> : (
-          <table className="list">
-            <thead><tr><th>Type</th><th>Supply</th><th>Rate</th><th className="num">Taxable ₹</th><th className="num">Tax ₹</th></tr></thead>
-            <tbody>{data.salesByRate.map((r, i) => <tr key={i}><td>{r.kind}</td><td>{r.supply === 'INTER' ? 'Inter-state' : 'Intra-state'}</td><td>{pct(r.ratePpm)}</td><td className="num">{inr(r.taxableMinor)}</td><td className="num">{inr(r.taxMinor)}</td></tr>)}</tbody>
-          </table>
-        )}
+        <Panel title="Outward supplies by rate">
+          {data.salesByRate.length === 0 ? <Empty>No taxable sales in this period.</Empty> : (
+            <table className="list">
+              <thead><tr><th>Type</th><th>Supply</th><th>Rate</th><th className="num">Taxable ₹</th><th className="num">Tax ₹</th></tr></thead>
+              <tbody>{data.salesByRate.map((r, i) => <tr key={i}><td>{r.kind}</td><td>{r.supply === 'INTER' ? 'Inter-state' : 'Intra-state'}</td><td>{pct(r.ratePpm)}</td><td className="num">{inr(r.taxableMinor)}</td><td className="num">{inr(r.taxMinor)}</td></tr>)}</tbody>
+            </table>
+          )}
+        </Panel>
         <p className="hint-bar">GSTR-1 / 3B JSON export and GSTR-2B reconciliation are Phase 4.</p>
       </>}
     </div>

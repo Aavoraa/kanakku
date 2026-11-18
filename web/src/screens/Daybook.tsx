@@ -2,13 +2,17 @@ import { useEffect, useRef, useState } from 'react';
 import { api, c } from '../api';
 import { useApp } from '../state';
 import { useKeys, isTyping } from '../keys';
-import { Empty, Kbd, ScreenHead } from '../components/ui';
+import { Empty, Kbd, ScreenHead, Stat } from '../components/ui';
 import { fmtDate, inr, TYPE_LABEL } from '../format';
 
 interface Row {
   id: string; voucherNo: string; date: string; voucherType: string; typeName: string; totalMinor: string; source: string;
   narration: string | null; partyRefNo: string | null; particulars: string | null; reversesVoucherId: string | null; reversedBy: string | null;
 }
+
+/** Total of one voucher type, leaving out reversed vouchers and their reversals. */
+const sumOf = (rows: Row[], type: string) =>
+  rows.filter((r) => r.voucherType === type && !r.reversesVoucherId && !r.reversedBy).reduce((s, r) => s + BigInt(r.totalMinor), 0n);
 
 export function Daybook({ params }: { params?: { from?: string; to?: string; type?: string } }) {
   const app = useApp();
@@ -50,6 +54,16 @@ export function Daybook({ params }: { params?: { from?: string; to?: string; typ
           </select>
         </label>
       </ScreenHead>
+      {rows && rows.length > 0 && (
+        <section className="tiles" aria-label="Summary">
+          <Stat label="Vouchers" value={rows.length} />
+          <Stat label="Sales" value={`₹${inr(sumOf(rows, 'SALES'))}`} />
+          <Stat label="Purchases" value={`₹${inr(sumOf(rows, 'PURCHASE'))}`} />
+          <Stat label="Receipts" value={`₹${inr(sumOf(rows, 'RECEIPT'))}`} />
+          <Stat label="Payments" value={`₹${inr(sumOf(rows, 'PAYMENT'))}`} />
+          <Stat label="Total" value={`₹${inr(total)}`} note="excluding reversed pairs" />
+        </section>
+      )}
       {rows && rows.length === 0 ? <Empty>No vouchers in this period. Press <Kbd>F8</Kbd> to record a sale.</Empty> : (
         <table className="list selectable">
           <thead><tr><th>Date</th><th>Particulars</th><th>Type</th><th>No.</th><th className="num">Amount ₹</th><th>Via</th></tr></thead>

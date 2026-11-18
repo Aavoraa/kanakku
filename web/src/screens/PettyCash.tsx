@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, c, ApiError, type Posted } from '../api';
 import { useApp } from '../state';
 import { Picker, type Option } from '../components/Picker';
-import { Empty, ErrorBox, ScreenHead } from '../components/ui';
+import { Empty, ErrorBox, Panel, ScreenHead } from '../components/ui';
 import { fmtDate, fromMinor, inr, toMinor, todayIST, TYPE_LABEL, uid } from '../format';
 
 interface Box {
@@ -41,7 +41,14 @@ export function PettyCash() {
     return (
       <div className="settings">
         <ScreenHead title="Set up petty cash" sub="Imprest system: a fixed float kept by a custodian, topped up back to the float after spending." />
-        <SetupBox onDone={async () => { setAdding(false); await changed(); }} onCancel={boxes.length ? () => setAdding(false) : undefined} />
+        <div className="tile-columns">
+          <Panel title="New petty cash box"><SetupBox onDone={async () => { setAdding(false); await changed(); }} onCancel={boxes.length ? () => setAdding(false) : undefined} /></Panel>
+          <Panel title="How it works">
+            <p className="small">You hand a fixed amount, the float, to the person who keeps the box. Small expenses are paid from it and recorded here.</p>
+            <p className="small">When the cash runs low you top it back up to the float, so the top-up always equals what was spent.</p>
+            <p className="small muted">Count the cash now and then: any shortage or excess can be posted in one step.</p>
+          </Panel>
+        </div>
       </div>
     );
   }
@@ -65,12 +72,12 @@ export function PettyCash() {
         <div className="tile"><span className="tile-label">Last counted</span><span className="tile-value">{box.lastCount ? fmtDate(box.lastCount) : '—'}</span>
           {box.lastCountDiffMinor && BigInt(box.lastCountDiffMinor) !== 0n && <span className="tile-note">{BigInt(box.lastCountDiffMinor) < 0n ? 'short' : 'excess'} ₹{inr(box.lastCountDiffMinor, { abs: true })}</span>}</div>
       </section>
-      <div className="tabs" role="tablist">
-        {([['expense', 'Pay an expense'], ['topup', 'Top up'], ['count', 'Count cash'], ['settings', 'Box settings']] as [Tab, string][]).map(([t, label]) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{label}</button>
-        ))}
-      </div>
       <div className="petty-panel">
+        <div className="tabs" role="tablist">
+          {([['expense', 'Pay an expense'], ['topup', 'Top up'], ['count', 'Count cash'], ['settings', 'Box settings']] as [Tab, string][]).map(([t, label]) => (
+            <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{label}</button>
+          ))}
+        </div>
         {tab === 'expense' && <ExpenseForm box={box} onDone={changed} />}
         {tab === 'topup' && <TopUpForm box={box} onDone={changed} />}
         {tab === 'count' && <CountForm box={box} denoms={denoms} onDone={changed} />}
@@ -269,14 +276,12 @@ function PettyBook({ box }: { box: Box }) {
     return () => { live = false; };
   }, [box.id, from, to, app.dataVersion]);
   return (
-    <section>
-      <div className="screen-head">
-        <h2>Petty cash book</h2>
+    <>
+      <Panel title="Petty cash book" action={
         <div className="head-actions">
           <label>From<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
           <label>To<input type="date" value={to} max={todayIST()} onChange={(e) => setTo(e.target.value)} /></label>
-        </div>
-      </div>
+        </div>}>
       {!book ? <p className="muted">Loading…</p> : <>
         <table className="list selectable">
           <thead><tr><th>Date</th><th>Type</th><th>No.</th><th>Particulars</th><th className="num">Received ₹</th><th className="num">Paid ₹</th><th className="num">Balance ₹</th></tr></thead>
@@ -296,12 +301,13 @@ function PettyBook({ box }: { box: Box }) {
           <tfoot><tr><td colSpan={4}>Closing balance</td><td className="num">{inr(book.totalDebitMinor)}</td><td className="num">{inr(book.totalCreditMinor)}</td><td className="num">{inr(book.closingMinor)}</td></tr></tfoot>
         </table>
         {book.lines.length === 0 && <Empty>No petty cash movements in this period.</Empty>}
-        {book.byHead.length > 0 && <>
-          <h3>Spent on</h3>
+      </>}
+      </Panel>
+      {book && (book.byHead.length > 0 || book.counts.length > 0) && <div className="tile-grid">
+        {book.byHead.length > 0 && <Panel title="Spent on">
           <table className="list"><tbody>{book.byHead.map((h) => <tr key={h.ledger}><td>{h.ledger}</td><td className="num">{inr(h.amountMinor)}</td></tr>)}</tbody></table>
-        </>}
-        {book.counts.length > 0 && <>
-          <h3>Cash counts</h3>
+        </Panel>}
+        {book.counts.length > 0 && <Panel title="Cash counts">
           <table className="list">
             <thead><tr><th>Date</th><th className="num">Counted ₹</th><th className="num">Books ₹</th><th className="num">Difference ₹</th><th>Posted as</th><th>Remarks</th></tr></thead>
             <tbody>{book.counts.map((k) => (
@@ -310,8 +316,8 @@ function PettyBook({ box }: { box: Box }) {
                 <td>{k.adjustmentNo ?? ''}</td><td>{k.remarks}</td></tr>
             ))}</tbody>
           </table>
-        </>}
-      </>}
-    </section>
+        </Panel>}
+      </div>}
+    </>
   );
 }
