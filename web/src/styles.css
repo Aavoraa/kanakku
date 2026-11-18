@@ -6,34 +6,38 @@
    system UI font (Segoe UI Variable on Windows).
    ===================================================================== */
 
+/* Black and gold. Dark is the default look (theme.ts); light keeps the same gold on warm ivory. */
 :root {
-  --bg: #f4f5f9;
+  --bg: #f7f4ec;
   --surface: #ffffff;
-  --surface-2: #f3f5f9;
-  --surface-3: #e9ecf3;
-  --text: #111827;
-  --text-2: #374151;
-  --muted: #667085;
-  --line: #e4e7ee;
-  --line-strong: #d0d5df;
-  --accent: #4f46e5;
-  --accent-strong: #4338ca;
-  --accent-soft: #eef0ff;
+  --surface-2: #faf6ec;
+  --surface-3: #f1eadb;
+  --text: #17140e;
+  --text-2: #3d3628;
+  --muted: #6f6656;
+  --line: #e9e1cf;
+  --line-strong: #d8ccb2;
+  --accent: #8a6206;
+  --accent-strong: #6e4e05;
+  --accent-soft: #fbf1d8;
   --accent-ink: #ffffff;
-  --teal: #0d9488;
+  --teal: #c99a2e;
+  --gold-grad: linear-gradient(135deg, #f7d77f 0%, #e2ab2c 50%, #b37f12 100%);
+  --gold-ink: #16120a;
   --ok: #157f3d;
   --ok-soft: #e7f6ec;
   --bad: #c42b20;
   --bad-soft: #fdecea;
+  --bad-ink: #ffffff;
   --warn: #9a5b06;
   --warn-bg: #fff6df;
   --warn-line: #f0c35b;
-  --sel: #fff3c4;
-  --kbd: #f1f3f8;
-  --series-1: #2a78d6;
-  --series-2: #eb6834;
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.06);
-  --shadow: 0 16px 40px rgba(16, 24, 40, 0.16), 0 2px 6px rgba(16, 24, 40, 0.06);
+  --sel: #fbecc0;
+  --kbd: #f5efe1;
+  --series-1: #c8921c;
+  --series-2: #8c8273;
+  --shadow-sm: 0 1px 2px rgba(60, 45, 10, 0.06), 0 1px 3px rgba(60, 45, 10, 0.06);
+  --shadow: 0 16px 40px rgba(60, 45, 10, 0.16), 0 2px 6px rgba(60, 45, 10, 0.06);
   --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
   --radius: 12px;
   --radius-sm: 8px;
@@ -43,22 +47,22 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --bg: #0b0f17; --surface: #161c26; --surface-2: #1b2230; --surface-3: #232b3a;
-    --text: #e8ebf1; --text-2: #c4cad6; --muted: #949db0; --line: #252e3d; --line-strong: #334056;
-    --accent: #8b87ff; --accent-strong: #a9a6ff; --accent-soft: #24234a; --accent-ink: #0b0f17; --teal: #2dd4bf;
-    --ok: #4ade80; --ok-soft: #12301f; --bad: #ff7b72; --bad-soft: #3a1b1b; --warn: #f0b354; --warn-bg: #33270f; --warn-line: #8a6a24;
-    --sel: #3a3315; --kbd: #232b3a; --series-1: #3987e5; --series-2: #d95926;
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35); --shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+    --bg: #050505; --surface: #101010; --surface-2: #161512; --surface-3: #201d17;
+    --text: #f5f0e4; --text-2: #d8d0bf; --muted: #9b917f; --line: #262219; --line-strong: #3a3325;
+    --accent: #e2ab2c; --accent-strong: #f5c75a; --accent-soft: #2a210d; --accent-ink: #16120a; --teal: #b37f12;
+    --ok: #5fd38d; --ok-soft: #12291b; --bad: #ff7b72; --bad-soft: #3a1b1b; --bad-ink: #2b0b08; --warn: #f59e0b; --warn-bg: #33240a; --warn-line: #8a6a24;
+    --sel: #3a2e10; --kbd: #1d1a14; --series-1: #e2ab2c; --series-2: #8e8576;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5); --shadow: 0 18px 44px rgba(0, 0, 0, 0.65);
     color-scheme: dark;
   }
 }
 :root[data-theme='dark'] {
-  --bg: #0b0f17; --surface: #161c26; --surface-2: #1b2230; --surface-3: #232b3a;
-  --text: #e8ebf1; --text-2: #c4cad6; --muted: #949db0; --line: #252e3d; --line-strong: #334056;
-  --accent: #8b87ff; --accent-strong: #a9a6ff; --accent-soft: #24234a; --accent-ink: #0b0f17; --teal: #2dd4bf;
-  --ok: #4ade80; --ok-soft: #12301f; --bad: #ff7b72; --bad-soft: #3a1b1b; --warn: #f0b354; --warn-bg: #33270f; --warn-line: #8a6a24;
-  --sel: #3a3315; --kbd: #232b3a; --series-1: #3987e5; --series-2: #d95926;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35); --shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+  --bg: #050505; --surface: #101010; --surface-2: #161512; --surface-3: #201d17;
+  --text: #f5f0e4; --text-2: #d8d0bf; --muted: #9b917f; --line: #262219; --line-strong: #3a3325;
+  --accent: #e2ab2c; --accent-strong: #f5c75a; --accent-soft: #2a210d; --accent-ink: #16120a; --teal: #b37f12;
+  --ok: #5fd38d; --ok-soft: #12291b; --bad: #ff7b72; --bad-soft: #3a1b1b; --bad-ink: #2b0b08; --warn: #f59e0b; --warn-bg: #33240a; --warn-line: #8a6a24;
+  --sel: #3a2e10; --kbd: #1d1a14; --series-1: #e2ab2c; --series-2: #8e8576;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5); --shadow: 0 18px 44px rgba(0, 0, 0, 0.65);
   color-scheme: dark;
 }
 
@@ -140,7 +144,7 @@ hr { border: 0; border-top: 1px solid var(--line); }
 .nav-key { opacity: 0; font-size: 0.62rem; }
 .nav-item:hover .nav-key, .nav-item:focus-visible .nav-key { opacity: 0.85; }
 .nav-badge { min-width: 20px; padding: 0 6px; height: 20px; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font-size: 0.7rem; font-weight: 700; display: inline-grid; place-items: center; }
-.nav-badge.bad { background: var(--bad); color: #fff; }
+.nav-badge.bad { background: var(--bad); color: var(--bad-ink); }
 .sidebar-foot { padding: 0.75rem 1.1rem; border-top: 1px solid var(--line); line-height: 1.6; }
 .sidebar-scrim { display: none; }
 
@@ -186,7 +190,7 @@ button.company:hover:not(:disabled) { background: var(--surface-2); border-color
 /* bell */
 .alerts { position: relative; }
 .bell-count { position: absolute; top: 1px; right: 0; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 99px; background: var(--accent); color: var(--accent-ink); font-size: 0.62rem; font-weight: 750; line-height: 16px; text-align: center; border: 2px solid var(--surface); box-sizing: content-box; transform: translate(25%, -15%); }
-.bell.has-overdue .bell-count { background: var(--bad); color: #fff; }
+.bell.has-overdue .bell-count { background: var(--bad); color: var(--bad-ink); }
 .alerts-pop { min-width: 340px; max-width: min(420px, calc(100vw - 32px)); max-height: 70vh; overflow: auto; }
 .alerts-pop button span { white-space: normal; }
 .alerts-more { padding: 0.3rem 0.65rem; }
@@ -203,7 +207,7 @@ button.company:hover:not(:disabled) { background: var(--surface-2); border-color
 .warn.strong { font-weight: 560; }
 .warn.small { font-size: 0.86rem; }
 .tag { margin-left: 0.45rem; padding: 0.05rem 0.42rem; border-radius: 5px; background: var(--surface-3); color: var(--text-2); font-size: 0.72em; font-weight: 600; vertical-align: 1px; }
-.badge { margin-left: auto; background: var(--bad); color: #fff; border-radius: 99px; font-size: 0.7rem; padding: 0 0.45rem; }
+.badge { margin-left: auto; background: var(--bad); color: var(--bad-ink); border-radius: 99px; font-size: 0.7rem; padding: 0 0.45rem; }
 .skeleton { display: inline-block; width: 7rem; height: 1em; border-radius: 6px; background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2)); background-size: 200% 100%; animation: shimmer 1.3s infinite; }
 .skeleton.block { display: block; width: 100%; height: 180px; border-radius: var(--radius-sm); }
 @keyframes shimmer { to { background-position: -200% 0; } }
@@ -527,7 +531,7 @@ button.post { margin-top: 0.35rem; padding: 0.7rem; font-weight: 650; }
 
 .toasts { position: fixed; left: 50%; transform: translateX(-50%); bottom: 24px; display: flex; flex-direction: column; align-items: center; gap: 0.45rem; z-index: 60; pointer-events: none; }
 .toast { background: var(--text); color: var(--bg); padding: 0.6rem 1rem; border-radius: 10px; box-shadow: var(--shadow); font-size: 0.9rem; font-weight: 520; max-width: min(560px, calc(100vw - 32px)); }
-.toast.error { background: var(--bad); color: #fff; }
+.toast.error { background: var(--bad); color: var(--bad-ink); }
 .toast.info { background: var(--accent); color: var(--accent-ink); }
 
 /* ---------- sign in ---------- */
@@ -606,3 +610,28 @@ button.post { margin-top: 0.35rem; padding: 0.7rem; font-weight: 650; }
   .top-actions { gap: 0.15rem; }
   .chart-head .legend { gap: 0.6rem; }
 }
+
+/* ---------- black and gold finish ---------- */
+/* Gold fills: the active menu item, primary buttons, brand mark and avatars, with dark text on top. */
+.nav-item.active { background: var(--gold-grad); color: var(--gold-ink); box-shadow: 0 4px 14px color-mix(in srgb, #e2ab2c 28%, transparent); }
+.nav-item.active .icon-svg { color: var(--gold-ink); }
+/* The plain .nav-item:hover rule is more specific than .nav-item.active: keep the gold fill and dark ink on hover. */
+.nav-item.active:hover:not(:disabled) { background: var(--gold-grad); color: var(--gold-ink); filter: brightness(1.06); }
+.nav-item.active:hover .icon-svg { color: var(--gold-ink); }
+.nav-item.active .nav-badge { background: var(--gold-ink); color: #f5c75a; }
+button.primary { background: var(--gold-grad); border-color: color-mix(in srgb, #b37f12 70%, transparent); color: var(--gold-ink); box-shadow: 0 2px 10px color-mix(in srgb, #e2ab2c 25%, transparent); }
+button.primary:hover:not(:disabled) { background: var(--gold-grad); border-color: #f5c75a; filter: brightness(1.07); }
+.brand-mark, .avatar, .chat-avatar { background: var(--gold-grad); color: var(--gold-ink); box-shadow: 0 4px 12px color-mix(in srgb, #e2ab2c 30%, transparent); }
+.avatar:hover:not(:disabled) { background: var(--gold-grad); filter: brightness(1.07); }
+.auth-brand { background: var(--gold-grad); -webkit-background-clip: text; background-clip: text; }
+.bell-count { background: var(--gold-grad); color: var(--gold-ink); }
+/* Panels: near-black with a faint warm edge and a soft gold glow on hover. */
+.card, .kpi, .tile, .list, .report { border-color: color-mix(in srgb, var(--accent) 14%, var(--line)); }
+.kpi:hover:not(:disabled), button.tile:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); box-shadow: var(--shadow-sm), 0 8px 22px color-mix(in srgb, var(--accent) 14%, transparent); }
+/* KPI icons: round, gold on a dark disc with a gold ring. */
+.kpi-icon { width: 38px; height: 38px; border-radius: 50%; color: var(--accent); background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 22%, var(--surface-2)), var(--surface-2)); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+.kpi-value, .tile-value { color: var(--text); }
+th { background: var(--surface-2); color: color-mix(in srgb, var(--accent) 35%, var(--muted)); }
+.tabs button.on, .menu-pop button.on { color: var(--accent); }
+.sidebar { background: color-mix(in srgb, var(--surface) 70%, var(--bg)); }
+.tile-warn { border-color: var(--warn-line); }
