@@ -16,9 +16,13 @@ export function AlertsBell() {
   const goRef = useRef(app.go);
   goRef.current = app.go;
 
+  // Only the newest load may land: after a company switch the old company's counts must not reach the bell.
+  const seq = useRef(0);
   const load = useCallback(async () => {
+    const n = ++seq.current;
     try {
       const a = await api.get<ComplianceAlerts>(c('/compliance/alerts'));
+      if (n !== seq.current) return;
       setData(a);
       notifyDue(a.items, companyName, a.today, () => goRef.current({ screen: 'compliance' }));
     } catch { /* the bell just stays as it was */ }

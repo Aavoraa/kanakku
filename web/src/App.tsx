@@ -73,7 +73,7 @@ function Shell({ toasts }: { toasts: { id: number; msg: string; kind: string }[]
     'Alt+G': () => setPalette(true),
     'Ctrl+U': () => app.go({ screen: 'review', params: { upload: true } }),
     'Alt+H': () => app.home(),
-    Escape: () => { if (app.stackDepth > 1) app.back(); else return false; },
+    Escape: () => { if (app.stackDepth > 1) { if (app.mayLeave()) app.back(); } else return false; },
   };
   for (const [k, t] of Object.entries(VOUCHER_KEYS)) global[k] = () => app.go({ screen: 'voucher', params: { type: t } });
   useGlobalKeys(global);
@@ -86,7 +86,7 @@ function Shell({ toasts }: { toasts: { id: number; msg: string; kind: string }[]
         <header className="topbar">
           <button className="ghost icon-btn menu-btn" onClick={() => setDrawer(true)} aria-label="Open menu"><Icon name="menu" /></button>
           {app.stackDepth > 1 && (
-            <button className="ghost back-btn" onClick={() => app.back()} title="Back (Esc)"><Icon name="back" /><span>Back</span></button>
+            <button className="ghost back-btn" onClick={() => { if (app.mayLeave()) app.back(); }} title="Back (Esc)"><Icon name="back" /><span>Back</span></button>
           )}
           <CompanySwitcher />
           <button className="search-btn" onClick={() => setPalette(true)} aria-label="Search and go to (Ctrl+K)">
@@ -106,9 +106,9 @@ function Shell({ toasts }: { toasts: { id: number; msg: string; kind: string }[]
           </div>
         </header>
 
-        {/* The company is part of the key: switching company while already on Home (which leaves the route as it was)
-            must still reload the screen, or it keeps showing the previous company's figures. */}
-        <main className="content" key={`${app.company.id}-${route.screen}-${app.stackDepth}`}>
+        {/* Keyed by navigation: Sales -> Purchase, one ledger -> another, must mount afresh, or the screen keeps the
+            first one's starting values. The company is part of the key too, so a switch always reloads the figures. */}
+        <main className="content" key={`${app.company.id}-${route.id}`}>
           <div className="page"><Screen route={route} /></div>
         </main>
       </div>

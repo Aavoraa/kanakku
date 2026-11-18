@@ -113,6 +113,65 @@ describe('posting engine', () => {
   });
 });
 
+describe('manual Dr/Cr entry on sales, purchases and notes', () => {
+  const ledger = async (name: string) => (await one<{ id: string }>(db, `SELECT id FROM ledgers WHERE company_id = $1 AND name = $2`, [companyId, name])).id;
+  const partyLedger = async (cp: string) => (await one<{ id: string }>(db, `SELECT id FROM ledgers WHERE company_id = $1 AND counterparty_id = $2`, [companyId, cp])).id;
+  const day = `${today.slice(0, 8)}01` < fyStart(today) ? today : `${today.slice(0, 8)}01`;
+
+  it('posts a sale exactly as typed, records its GST and opens a bill for the party', async () => {
+    const { rajesh } = await ids();
+    const rajeshL = await partyLedger(rajesh);
+    const before = await gstSummary(db, companyId, day, today);
+    const outCgst = (b: typeof before) => b.byComponent.find((c) => c.component === 'CGST')?.outputMinor ?? 0n;
+    const posted = await postVoucher(db, companyId, {
+      voucherType: 'SALES', date: today, narration: 'Typed by hand', entries: [
+        { ledgerId: rajeshL, side: 'DR', amount: '11800' },
+        { ledgerId: await ledger('Sales'), side: 'CR', amount: '10000' },
+        { ledgerId: await ledger('Output CGST 9%'), side: 'CR', amount: '900' },
+        { ledgerId: await ledger('Output SGST 9%'), side: 'CR', amount: '900' },
+      ] }, { source: 'MANUAL', idempotencyKey: 'manual-sale-1', userId: user });
+    expect(posted.totalMinor).toBe(1180000n);
+    const after = await gstSummary(db, companyId, day, today);
+    expect(outCgst(after) - outCgst(before)).toBe(90000n);
+    const bill = await one<{ alloc_type: string; bill_ref: string }>(db,
+      `SELECT b.alloc_type, b.bill_ref FROM bill_allocations b JOIN ledger_entries le ON le.id = b.ledger_entry_id WHERE le.voucher_id = $1`, [posted.id]);
+    expect(bill.alloc_type).toBe('NEW_REF');
+    expect(bill.bill_ref).toBe(posted.voucherNo);
+    expect((await trialBalance(db, companyId, today)).totalDebitMinor).toBe((await trialBalance(db, companyId, today)).totalCreditMinor);
+  });
+
+  it('refuses input tax on a sale, an unbalanced entry, and a credit purchase without the supplier invoice no.', async () => {
+    const { rajesh, balaji } = await ids();
+    await expect(postVoucher(db, companyId, { voucherType: 'SALES', date: today, entries: [
+      { ledgerId: await partyLedger(rajesh), side: 'DR', amount: '1180' },
+      { ledgerId: await ledger('Sales'), side: 'CR', amount: '1000' },
+      { ledgerId: await ledger('Input CGST 9%'), side: 'CR', amount: '180' }] },
+      { source: 'MANUAL', idempotencyKey: 'manual-bad-1', userId: user })).rejects.toMatchObject({ code: 'WRONG_TAX_LEDGER' });
+    await expect(postVoucher(db, companyId, { voucherType: 'SALES', date: today, entries: [
+      { ledgerId: await partyLedger(rajesh), side: 'DR', amount: '100' },
+      { ledgerId: await ledger('Sales'), side: 'CR', amount: '90' }] },
+      { source: 'MANUAL', idempotencyKey: 'manual-bad-2', userId: user })).rejects.toMatchObject({ code: 'UNBALANCED' });
+    await expect(postVoucher(db, companyId, { voucherType: 'PURCHASE', date: today, entries: [
+      { ledgerId: await ledger('Purchase'), side: 'DR', amount: '100' },
+      { ledgerId: await partyLedger(balaji), side: 'CR', amount: '100' }] },
+      { source: 'MANUAL', idempotencyKey: 'manual-bad-3', userId: user })).rejects.toMatchObject({ code: 'SUPPLIER_INVOICE_REQUIRED' });
+  });
+
+  it('records a credit note typed by hand as negative output tax', async () => {
+    const { rajesh } = await ids();
+    const before = await gstSummary(db, companyId, day, today);
+    const outCgst = (b: typeof before) => b.byComponent.find((c) => c.component === 'CGST')?.outputMinor ?? 0n;
+    await postVoucher(db, companyId, { voucherType: 'CREDIT_NOTE', date: today, originalRef: 'X-1', confirmWarnings: true, entries: [
+      { ledgerId: await ledger('Sales'), side: 'DR', amount: '1000' },
+      { ledgerId: await ledger('Output CGST 9%'), side: 'DR', amount: '90' },
+      { ledgerId: await ledger('Output SGST 9%'), side: 'DR', amount: '90' },
+      { ledgerId: await partyLedger(rajesh), side: 'CR', amount: '1180' }] },
+      { source: 'MANUAL', idempotencyKey: 'manual-cn-1', userId: user });
+    const after = await gstSummary(db, companyId, day, today);
+    expect(outCgst(after) - outCgst(before)).toBe(-9000n);
+  });
+});
+
 describe('reports', () => {
   it('balance sheet balances, with stock and profit carried', async () => {
     const bs = await balanceSheet(db, companyId, today);

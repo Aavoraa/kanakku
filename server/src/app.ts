@@ -17,6 +17,9 @@ declare module 'fastify' {
 /** Routes anyone may call without logging in. */
 const PUBLIC = [/^\/api\/v1\/status$/, /^\/api\/v1\/auth\/(signup|login|logout|me)$/];
 
+/** Postgres codes for text it could not convert: 22P02 bad uuid / number, 22007 bad date format, 22008 date out of range. */
+const BAD_INPUT_PG = new Set(['22P02', '22007', '22008']);
+
 export async function buildApp(db: Database, opts: { serveWeb?: boolean } = {}): Promise<FastifyInstance> {
   // Behind Vercel's proxy, trust X-Forwarded-Proto so the session cookie is marked Secure.
   const app = Fastify({ logger: { level: 'warn' }, bodyLimit: 5 * 1024 * 1024, trustProxy: config.demo });
@@ -49,8 +52,13 @@ export async function buildApp(db: Database, opts: { serveWeb?: boolean } = {}):
     if (e.statusCode && e.statusCode < 500) {
       return reply.status(e.statusCode).send({ code: e.code ?? 'BAD_REQUEST', message: e.message ?? 'Bad request', details: null });
     }
+    // Input Postgres cannot read (an id that is not a UUID, 2026-02-30) is the caller's mistake, not a crash.
+    if (e.code && BAD_INPUT_PG.has(e.code)) {
+      return reply.status(400).send({ code: 'BAD_REQUEST', message: 'Some of the input is not valid (an id, date or number).', details: null });
+    }
     // Postgres-level guards (append-only, balance) surface here if code ever bypasses the posting engine.
     const msg = e.message ?? String(err);
+    if (msg.startsWith('[DecimalError]')) return reply.status(400).send({ code: 'BAD_REQUEST', message: 'An amount is not a number.', details: null });
     if (/append-only|unbalanced/.test(msg)) return reply.status(409).send({ code: 'LEDGER_GUARD', message: msg, details: null });
     console.error(err);
     return reply.status(500).send({ code: 'INTERNAL', message: 'Something went wrong. Check the server log.', details: null });

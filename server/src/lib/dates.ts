@@ -5,6 +5,13 @@ export function todayIST(): string {
   return now.toISOString().slice(0, 10);
 }
 
+/** 'YYYY-MM-DD' naming a day that exists: the pattern alone lets 2026-02-30 through to Postgres, which then fails. */
+export function isIsoDate(v: unknown): v is string {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+}
+
 export function addDays(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);

@@ -32,6 +32,8 @@ export function ReviewDoc({ params }: { params: { id: string } }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [err, setErr] = useState<{ message: string; details?: unknown } | null>(null);
   const [confirm, setConfirm] = useState<string[] | null>(null);
+  // A changed bill must be checked again: the warnings confirmed were about the earlier version.
+  useEffect(() => { setConfirm(null); }, [draft, newParty]);
 
   const load = useCallback(async () => {
     const doc = await api.get<Detail>(c(`/documents/${params.id}`));
@@ -70,6 +72,7 @@ export function ReviewDoc({ params }: { params: { id: string } }) {
       .filter((l) => !l.taxComponent && l.systemCode !== 'ROUND_OFF')
       .map((l) => ({ id: `ledger:${l.id}`, label: l.name, sub: l.groupName })),
   ], [app.masters, customer]);
+  const banks = app.masters.ledgers.filter((l) => l.isCashBank && l.systemCode !== 'CASH');
   const partyOptions: Option[] = useMemo(() => app.masters.parties
     .filter((p) => (customer ? p.kind !== 'SUPPLIER' : p.kind !== 'CUSTOMER') || p.id === draft?.counterpartyId)
     .map((p) => ({ id: p.id, label: p.name, sub: [p.city, p.gstin].filter(Boolean).join(' · ') })), [app.masters.parties, customer, draft?.counterpartyId]);
@@ -167,6 +170,12 @@ export function ReviewDoc({ params }: { params: { id: string } }) {
                 <label>Invoice no.<input value={draft.partyRefNo ?? ''} onChange={(e) => setDraft({ ...draft, partyRefNo: e.target.value })} maxLength={16} /></label>
                 <label className="w-date">Invoice date<input type="date" value={draft.partyRefDate ?? ''} onChange={(e) => setDraft({ ...draft, partyRefDate: e.target.value, date: e.target.value })} /></label>
                 <label>Mode<select value={draft.paymentMode} onChange={(e) => setDraft({ ...draft, paymentMode: e.target.value as 'CREDIT' })}><option value="CREDIT">Credit</option><option value="CASH">Cash</option><option value="BANK">Bank</option></select></label>
+                {draft.paymentMode === 'BANK' && (
+                  <label>Bank account<select value={draft.bankLedgerId ?? ''} onChange={(e) => setDraft({ ...draft, bankLedgerId: e.target.value || null })}>
+                    <option value="">Choose…</option>
+                    {banks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                  </select></label>
+                )}
                 {!customer && <label className="check"><input type="checkbox" checked={Boolean(draft.reverseCharge)} onChange={(e) => setDraft({ ...draft, reverseCharge: e.target.checked })} /> Reverse charge</label>}
               </div>
 

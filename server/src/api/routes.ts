@@ -4,11 +4,11 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { many, maybeOne, one, type Database } from '../db/client';
 import { config } from '../config';
 import { AppError, invalid, notFound } from '../lib/errors';
-import { addDays, daysBetween, fyStart, todayIST } from '../lib/dates';
+import { addDays, daysBetween, fyStart, isIsoDate, todayIST } from '../lib/dates';
 import { complianceAlerts, complianceItems, complianceSettings, createTask, deleteTask, listTasks, saveRecord, updateComplianceSettings } from '../compliance/service';
-import { STATES, isValidGstin } from '../lib/gstin';
+import { STATES, gstinState, isValidGstin } from '../lib/gstin';
 import { toMinor } from '../lib/money';
-import { createGroup, createItem, createLedger, createParty, listGroups, setOpeningBalance } from '../ledger/masters';
+import { createGroup, createItem, createLedger, createParty, listGroups, openingMinor, setOpeningBalance } from '../ledger/masters';
 import { alterVoucher, correctionNote, postVoucher, previewVoucher, reverseVoucher, verifyChain, type Source } from '../ledger/post';
 import { balanceSheet, profitAndLoss, trialBalance } from '../reports/financials';
 import { ageing, daybook, ledgerStatement, openBills, voucherDetail } from '../reports/registers';
@@ -37,7 +37,7 @@ const body = (req: Req): any => (req.body as any) ?? {};
 
 const date = (v: string | undefined, fallback: string) => {
   const d = v ?? fallback;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw invalid(`Bad date: ${d}`);
+  if (!isIsoDate(d)) throw invalid(`Bad date: ${d}`);
   return d;
 };
 
@@ -102,7 +102,10 @@ export function registerRoutes(app: FastifyInstance, db: Database) {
     const c = await company(req);
     const b = body(req);
     if (b.name !== undefined && (typeof b.name !== 'string' || !b.name.trim())) throw invalid('Enter the business name');
-    if (b.lockDate && (typeof b.lockDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(b.lockDate))) throw invalid('Lock date is not a valid date');
+    if (b.lockDate && !isIsoDate(b.lockDate)) throw invalid('Lock date is not a valid date');
+    // The state follows the GSTIN: place of supply, and CGST+SGST against IGST, are decided from it.
+    const gstin = typeof b.gstin === 'string' ? b.gstin.trim().toUpperCase() : b.gstin;
+    if (gstin && (typeof gstin !== 'string' || !isValidGstin(gstin) || !STATES[gstinState(gstin)])) throw invalid('GSTIN is not valid');
     for (const k of ['voiceLimit', 'autoPostLimit']) {
       if (b[k] === undefined) continue;
       b[k] = String(b[k]).replace(/,/g, '').trim();
@@ -111,7 +114,7 @@ export function registerRoutes(app: FastifyInstance, db: Database) {
     if (b.fyNumberingFrom !== undefined) {
       // Only from the first day of a financial year that has no vouchers yet, so a year's series never mixes formats.
       const d = b.fyNumberingFrom;
-      if (typeof d !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(d) || fyStart(d, c.fy_start_month) !== d) throw invalid('Numbering by financial year starts on the first day of a financial year');
+      if (!isIsoDate(d) || fyStart(d, c.fy_start_month) !== d) throw invalid('Numbering by financial year starts on the first day of a financial year');
       if (await maybeOne(db, `SELECT 1 FROM vouchers WHERE company_id = $1 AND voucher_date >= $2 LIMIT 1`, [c.id, d])) {
         throw invalid('Vouchers are already posted in that year; choose a year that has none yet');
       }
@@ -123,9 +126,10 @@ export function registerRoutes(app: FastifyInstance, db: Database) {
     if (b.roundInvoice !== undefined) await db.query(`UPDATE companies SET round_invoice = $2 WHERE id = $1`, [c.id, Boolean(b.roundInvoice)]);
     if (b.autoPost !== undefined) await db.query(`UPDATE companies SET auto_post = $2 WHERE id = $1`, [c.id, Boolean(b.autoPost)]);
     if (b.autoPostLimit !== undefined) await db.query(`UPDATE companies SET auto_post_limit_minor = $2 WHERE id = $1`, [c.id, toMinor(b.autoPostLimit)]);
-    if (b.gstin !== undefined) {
-      if (b.gstin && !isValidGstin(b.gstin)) throw invalid('GSTIN is not valid');
-      await db.query(`UPDATE companies SET gstin = $2 WHERE id = $1`, [c.id, b.gstin || null]);
+    if (gstin !== undefined) {
+      // Clearing the GSTIN keeps the state the business is in.
+      await db.query(`UPDATE companies SET gstin = $2, state_code = COALESCE($3, state_code) WHERE id = $1`,
+        [c.id, gstin || null, gstin ? gstinState(gstin) : null]);
     }
     return { ok: true };
   });
@@ -142,7 +146,7 @@ export function registerRoutes(app: FastifyInstance, db: Database) {
     const c = await company(req);
     return many(db,
       `SELECT l.id, l.name, g.name AS "groupName", g.id AS "groupId", g.path::text AS path, g.nature, l.system_code AS "systemCode",
-              l.counterparty_id AS "counterpartyId", l.bill_wise AS "billWise", l.tax_component AS "taxComponent",
+              l.counterparty_id AS "counterpartyId", l.bill_wise AS "billWise", l.tax_component AS "taxComponent", l.tax_direction AS "taxDirection",
               (g.path ~ '*.bank_accounts|cash_in_hand|bank_od.*') AS "isCashBank", l.is_active AS "isActive",
               COALESCE((SELECT SUM(e.amount_minor) FROM ledger_entries e WHERE e.ledger_id = l.id), 0)::bigint AS "balanceMinor"
          FROM ledgers l JOIN ledger_groups g ON g.id = l.group_id
@@ -151,7 +155,7 @@ export function registerRoutes(app: FastifyInstance, db: Database) {
   app.post(`${P}/ledgers`, async (req: Req) => createLedger(db, (await company(req)).id, body(req), uid(req)));
   app.post(`${P}/ledgers/:id/opening`, async (req: Req) => {
     const c = await company(req);
-    const amt = toMinor(body(req).amount ?? '0') * (body(req).side === 'CR' ? -1n : 1n);
+    const amt = openingMinor(body(req).amount) * (body(req).side === 'CR' ? -1n : 1n);
     return setOpeningBalance(db, c.id, req.params.id, amt, uid(req));
   });
 
@@ -201,7 +205,8 @@ export function registerRoutes(app: FastifyInstance, db: Database) {
   app.get(`${P}/vouchers/:id`, async (req: Req) => voucherDetail(db, (await company(req)).id, req.params.id));
   app.post(`${P}/vouchers/:id/reverse`, async (req: Req) => {
     const c = await company(req);
-    return reverseVoucher(db, c.id, req.params.id, { userId: uid(req), source: 'MANUAL', date: body(req).date });
+    const d = body(req).date;
+    return reverseVoucher(db, c.id, req.params.id, { userId: uid(req), source: 'MANUAL', date: d === undefined || d === null || d === '' ? undefined : d });
   });
   // A sale or purchase in a closed period is corrected by a note; this prepares it (nothing is posted).
   app.get(`${P}/vouchers/:id/correction-note`, async (req: Req) => correctionNote(db, (await company(req)).id, req.params.id));
@@ -325,7 +330,7 @@ export function registerRoutes(app: FastifyInstance, db: Database) {
     docType: (typeof raw.docType === 'string' && raw.docType && raw.docType !== 'AUTO' ? raw.docType : null) as DocOptions['docType'],
     bankLedgerId: typeof raw.bankLedgerId === 'string' && raw.bankLedgerId ? raw.bankLedgerId : null,
     registerKind: raw.registerKind === 'SALES' || raw.registerKind === 'PURCHASE' ? raw.registerKind : null,
-    date: typeof raw.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.date) ? raw.date : null,
+    date: isIsoDate(raw.date) ? raw.date : null,
   });
   app.post(`${P}/documents`, async (req: Req) => {
     const c = await company(req);

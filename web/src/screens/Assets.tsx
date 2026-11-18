@@ -214,11 +214,15 @@ function LogForm({ assetId, scheduleKey, title, onDone, onCancel }: { assetId: s
   const [key] = useState(uid);
   const [warnings, setWarnings] = useState<string[] | null>(null);
   const [err, setErr] = useState<Err>(null);
+  // A second Enter or click while the first save is on its way must not log (and post) the cost twice.
+  const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
   const heads: Option[] = useMemo(() => app.masters.ledgers
     .filter((l) => !l.taxComponent && !l.isCashBank && !l.counterpartyId && (l.nature === 'EXPENSE' || l.path.includes('fixed_assets')))
     .map((l) => ({ id: l.id, label: l.name, sub: l.groupName })), [app.masters.ledgers]);
   const save = async () => {
+    if (busy) return;
+    setBusy(true);
     try {
       await api.post(c(`/assets/${assetId}/logs`), {
         ...f, cost: f.cost || null, paidFromLedgerId: f.paidFromLedgerId || null, scheduleKey, confirmWarnings: warnings !== null,
@@ -228,7 +232,7 @@ function LogForm({ assetId, scheduleKey, title, onDone, onCancel }: { assetId: s
     } catch (e) {
       if (e instanceof ApiError && e.code === 'CONFIRM_WARNINGS') setWarnings((e.details as { warnings: { message: string }[] }).warnings.map((w) => w.message));
       else setErr(asErr(e));
-    }
+    } finally { setBusy(false); }
   };
   return (
     <form className="form-grid log-form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
@@ -251,7 +255,7 @@ function LogForm({ assetId, scheduleKey, title, onDone, onCancel }: { assetId: s
       </>}
       {warnings && <div className="warn span-2">{warnings.map((w) => <p key={w} className="small">{w}</p>)}</div>}
       <ErrorBox error={err} />
-      <div className="form-actions"><button type="button" onClick={onCancel}>Cancel</button><button className="primary" type="submit">{warnings ? 'Save anyway' : 'Save'}</button></div>
+      <div className="form-actions"><button type="button" onClick={onCancel}>Cancel</button><button className="primary" type="submit" disabled={busy}>{warnings ? 'Save anyway' : 'Save'}</button></div>
     </form>
   );
 }

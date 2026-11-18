@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 export interface Option {
   id: string;
@@ -40,6 +40,9 @@ export const Picker = forwardRef<HTMLInputElement, Props>(function Picker(
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
   const listRef = useRef<HTMLUListElement>(null);
+  // Focus stays in the input, so screen readers learn the highlighted option through aria-activedescendant.
+  const listId = useId();
+  const optId = (i: number) => `${listId}-${i}`;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -71,6 +74,9 @@ export const Picker = forwardRef<HTMLInputElement, Props>(function Picker(
         aria-label={ariaLabel ?? placeholder}
         role="combobox"
         aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        aria-autocomplete="list"
+        aria-activedescendant={open && filtered[hi] ? optId(hi) : undefined}
         placeholder={placeholder}
         value={open ? query : selected?.label ?? ''}
         onFocus={() => { setOpen(true); setQuery(''); }}
@@ -92,9 +98,9 @@ export const Picker = forwardRef<HTMLInputElement, Props>(function Picker(
         }}
       />
       {open && (
-        <ul className="picker-list" ref={listRef} role="listbox">
+        <ul className="picker-list" ref={listRef} role="listbox" id={listId}>
           {filtered.map((o, i) => (
-            <li key={o.id} role="option" aria-selected={i === hi} className={i === hi ? 'hi' : ''}
+            <li key={o.id} id={optId(i)} role="option" aria-selected={i === hi} className={i === hi ? 'hi' : ''}
               onMouseDown={(e) => { e.preventDefault(); pick(o); }}>
               <span className="pl-label">{o.label}{o.sub && <small>{o.sub}</small>}</span>
               {o.right && <span className="pl-right num">{o.right}</span>}

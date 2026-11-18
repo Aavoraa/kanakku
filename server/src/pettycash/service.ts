@@ -1,10 +1,10 @@
 import { many, maybeOne, one, type Db, type Database } from '../db/client';
 import { AppError, invalid, notFound } from '../lib/errors';
-import { formatINR, fromMinor, toMinor } from '../lib/money';
-import { todayIST } from '../lib/dates';
+import { formatINR, fromMinor, parseRupees, toMinor } from '../lib/money';
+import { isIsoDate, todayIST } from '../lib/dates';
 import { LedgerContext } from '../ledger/context';
 import { createLedger, groupByCode } from '../ledger/masters';
-import { audit, postVoucher, type PostedVoucher } from '../ledger/post';
+import { audit, findPosted, postVoucher, type PostedVoucher } from '../ledger/post';
 import { postExpense, type ExpenseInput } from '../ledger/expense';
 import { ledgerStatement } from '../reports/registers';
 
@@ -27,7 +27,7 @@ const money = (v: unknown, label: string): bigint => {
   return toMinor(s);
 };
 const isoDate = (v: unknown, label = 'date') => {
-  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw invalid(`Enter the ${label}`);
+  if (!isIsoDate(v)) throw invalid(`Enter the ${label}`);
   return v;
 };
 
@@ -118,6 +118,9 @@ export interface PettyExpense extends Omit<ExpenseInput, 'paidFromLedgerId'> { c
 /** A payment out of petty cash. Refused if the box does not hold the money on that date (and every later one). */
 export async function recordExpense(db: Database, companyId: string, boxId: string, e: PettyExpense, opts: { idempotencyKey: string; userId: string }) {
   const b = await box(db, companyId, boxId);
+  // A retry of a payment that went through: the balance check below would now (wrongly) call the box short.
+  const done = await findPosted(db, companyId, opts.idempotencyKey);
+  if (done) return done;
   isoDate(e.date);
   const amountMinor = money(e.amount, 'amount paid');
   const available = await lowestFrom(db, b.ledger_id, e.date);
@@ -135,6 +138,9 @@ export async function recordExpense(db: Database, companyId: string, boxId: stri
 export async function topUp(db: Database, companyId: string, boxId: string, t: { date: string; fromLedgerId: string; amount?: string | null },
   opts: { idempotencyKey: string; userId: string }) {
   const b = await box(db, companyId, boxId);
+  // A retry of a top-up that went through: the box is full now, which is no reason to refuse it.
+  const done = await findPosted(db, companyId, opts.idempotencyKey);
+  if (done) return done;
   const date = isoDate(t.date);
   const ctx = await LedgerContext.load(db, companyId);
   if (t.fromLedgerId === b.ledger_id) throw invalid('Choose the bank or main cash ledger the money comes from');
@@ -167,6 +173,13 @@ export interface CountInput { date: string; notes: Record<string, number | strin
  */
 export async function countCash(db: Database, companyId: string, boxId: string, c: CountInput, opts: { idempotencyKey: string; userId: string }) {
   const b = await box(db, companyId, boxId);
+  const again = await maybeOne<{ id: string; counted_minor: bigint; book_minor: bigint }>(db,
+    `SELECT id, counted_minor, book_minor FROM petty_cash_counts WHERE company_id = $1 AND idempotency_key = $2`, [companyId, opts.idempotencyKey]);
+  if (again) {
+    // A retried request: the count it already saved, not a second one.
+    const adjustment = await findPosted(db, companyId, opts.idempotencyKey);
+    return { id: again.id, countedMinor: again.counted_minor, bookMinor: again.book_minor, differenceMinor: again.counted_minor - again.book_minor, adjustment };
+  }
   const date = isoDate(c.date);
   if (date > todayIST()) throw invalid('A count cannot be dated in the future');
   const notes: Record<string, number> = {};
@@ -177,8 +190,8 @@ export async function countCash(db: Database, companyId: string, boxId: string, 
     if (!Number.isInteger(n) || n < 0 || n > 100000) throw invalid(`Number of ₹${d} is not valid`);
     if (n) { notes[String(d)] = n; counted += BigInt(d) * 100n * BigInt(n); }
   }
-  const coinsMinor = c.coins ? toMinor(String(c.coins).replace(/,/g, '')) : 0n;
-  if (coinsMinor < 0n) throw invalid('Loose coins cannot be negative');
+  const coinsMinor = c.coins ? parseRupees(c.coins) : 0n;
+  if (coinsMinor === null) throw invalid('Enter the loose coins in rupees, like 35.50');
   counted += coinsMinor;
   const book = await balance(db, b.ledger_id, date);
   const diff = counted - book;
@@ -193,9 +206,9 @@ export async function countCash(db: Database, companyId: string, boxId: string, 
     { source: 'MANUAL', idempotencyKey: opts.idempotencyKey, userId: opts.userId });
   }
   const row = await one<{ id: string }>(db,
-    `INSERT INTO petty_cash_counts (box_id, company_id, count_date, denominations, coins_minor, counted_minor, book_minor, adjustment_voucher_id, remarks, counted_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
-    [b.id, companyId, date, JSON.stringify(notes), coinsMinor, counted, book, adjustment?.id ?? null, c.remarks?.trim().slice(0, 500) || null, opts.userId]);
+    `INSERT INTO petty_cash_counts (box_id, company_id, count_date, denominations, coins_minor, counted_minor, book_minor, adjustment_voucher_id, remarks, counted_by, idempotency_key)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+    [b.id, companyId, date, JSON.stringify(notes), coinsMinor, counted, book, adjustment?.id ?? null, c.remarks?.trim().slice(0, 500) || null, opts.userId, opts.idempotencyKey]);
   await audit(db, companyId, opts.userId, 'MANUAL', 'COUNT', 'petty_cash_box', b.id, null,
     { countId: row.id, date, counted: fromMinor(counted), book: fromMinor(book), difference: fromMinor(diff), adjustment: adjustment?.voucherNo ?? null });
   return { id: row.id, countedMinor: counted, bookMinor: book, differenceMinor: diff, adjustment };

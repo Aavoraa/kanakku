@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import Decimal from 'decimal.js';
 import { many, maybeOne, one, type Db, type Database } from '../db/client';
 import { AppError, invalid, notFound } from '../lib/errors';
-import { fiscalYear, todayIST } from '../lib/dates';
+import { fiscalYear, isIsoDate, todayIST } from '../lib/dates';
 import { qtyOnHand } from '../inventory/stock';
 import { VoucherInput, type VoucherInputRaw, type BaseType } from './contracts';
 import { LedgerContext } from './context';
@@ -17,6 +17,8 @@ export interface PostOptions {
   draftId?: string | null;
   /** Alter checks stock once, after both the reversal and the corrected voucher are in. */
   skipStockCheck?: boolean;
+  /** Only setOpeningBalance sets this: an Opening voucher skips the books-from check and may use any ledger. */
+  allowOpening?: boolean;
 }
 
 export interface PostedVoucher {
@@ -78,14 +80,34 @@ export async function postVoucher(db: Database, companyId: string, raw: unknown,
   return db.transaction((tx) => postInTx(tx, companyId, input, opts));
 }
 
+/**
+ * Serialises posting per company for the rest of the transaction. Taken before the checks that read the books
+ * (duplicate bill, stock on hand), else two posts on server Postgres can both pass them. Re-entrant: a session
+ * that holds an advisory lock gets it again at once, and xact locks all go at commit.
+ */
+async function lockCompany(tx: Db, companyId: string) {
+  await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [companyId]);
+}
+
+/** The voucher already posted with this idempotency key, so a retried request returns it instead of posting again. */
+export async function findPosted(db: Db, companyId: string, idempotencyKey: string): Promise<PostedVoucher | null> {
+  const v = await maybeOne<{ id: string; voucher_no: string; base_type: BaseType; voucher_date: string; total_minor: bigint }>(db,
+    `SELECT v.id, v.voucher_no, t.base_type, v.voucher_date::text, v.total_minor
+       FROM vouchers v JOIN voucher_types t ON t.id = v.voucher_type_id WHERE v.company_id = $1 AND v.idempotency_key = $2`,
+    [companyId, idempotencyKey]);
+  return v ? { id: v.id, voucherNo: v.voucher_no, voucherType: v.base_type, date: v.voucher_date, totalMinor: v.total_minor, alreadyPosted: true } : null;
+}
+
 /** Posts inside a caller's transaction (used by Alter = reverse + re-post atomically). */
 export async function postInTx(tx: Db, companyId: string, input: VoucherInput, opts: PostOptions): Promise<PostedVoucher> {
   {
-    const existing = await maybeOne<{ id: string; voucher_no: string; voucher_date: string; total_minor: bigint }>(tx,
-      `SELECT id, voucher_no, voucher_date::text, total_minor FROM vouchers WHERE company_id = $1 AND idempotency_key = $2`,
-      [companyId, opts.idempotencyKey]);
-    if (existing) {
-      return { id: existing.id, voucherNo: existing.voucher_no, voucherType: input.voucherType, date: existing.voucher_date, totalMinor: existing.total_minor, alreadyPosted: true };
+    await lockCompany(tx, companyId);
+    const existing = await findPosted(tx, companyId, opts.idempotencyKey);
+    if (existing) return existing;
+    // Opening balances sit before books_from and skip its check, so they come only from setOpeningBalance;
+    // through the voucher screen one could book Cash Dr / Sales Cr on any date and change a year's profit.
+    if (input.voucherType === 'OPENING' && !opts.allowOpening) {
+      throw new AppError('OPENING_NOT_ALLOWED', 422, 'Opening balances are set on the ledger or party, not posted as a voucher');
     }
 
     const ctx = await LedgerContext.load(tx, companyId);
@@ -94,6 +116,8 @@ export async function postInTx(tx: Db, companyId: string, input: VoucherInput, o
       throw new AppError('CONFIRM_WARNINGS', 409, plan.warnings.map((w) => w.message).join(' '), { warnings: plan.warnings });
     }
 
+    // Openings (dated the day before the books, only from setOpeningBalance) skip both checks: a bank account
+    // opened after the first month is locked still needs its opening balance.
     if (input.voucherType !== 'OPENING') {
       if (input.date < ctx.company.books_from) throw new AppError('BEFORE_BOOKS', 422, `Books begin on ${ctx.company.books_from}`);
       if (ctx.company.lock_date && input.date <= ctx.company.lock_date) {
@@ -301,8 +325,8 @@ export function chainHash(prev: Uint8Array | null, canonical: string): Buffer {
 }
 
 async function insertPosted(tx: Db, r: PostedRecord): Promise<{ id: string; chainSeq: bigint }> {
-  // Serialises posting per company (PGlite runs one transaction at a time; on server Postgres this takes the lock).
-  await tx.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [r.companyId]);
+  // Callers already hold it; taken again (re-entrant) so the hash chain never depends on them remembering.
+  await lockCompany(tx, r.companyId);
   const prev = await maybeOne<{ chain_seq: bigint; row_hash: Uint8Array }>(tx,
     `SELECT chain_seq, row_hash FROM vouchers WHERE company_id = $1 ORDER BY chain_seq DESC LIMIT 1`, [r.companyId]);
   const chainSeq = (prev?.chain_seq ?? 0n) + 1n;
@@ -363,6 +387,12 @@ export async function reverseVoucher(db: Database, companyId: string, voucherId:
 
 export async function reverseInTx(tx: Db, companyId: string, voucherId: string, opts: ReverseOptions): Promise<PostedVoucher> {
   {
+    await lockCompany(tx, companyId);
+    // A retried request with its own key (alter) gets the reversal it already made, not ALREADY_REVERSED.
+    if (opts.idempotencyKey) {
+      const done = await findPosted(tx, companyId, opts.idempotencyKey);
+      if (done) return done;
+    }
     const v = await maybeOne<{
       id: string; voucher_type_id: string; voucher_no: string; voucher_date: string; counterparty_id: string | null;
       reverses_voucher_id: string | null; total_minor: bigint; base_type: BaseType; prefix: string; place_of_supply: string | null;
@@ -388,6 +418,7 @@ export async function reverseInTx(tx: Db, companyId: string, voucherId: string, 
         `${v.base_type.replace('_', ' ').toLowerCase()} ${v.voucher_no} is in a closed period (books locked up to ${ctx.company.lock_date}). Issue a ${note.replace('_', ' ').toLowerCase()} dated today instead.`,
         { voucherId: v.id, voucherNo: v.voucher_no, noteType: note });
     }
+    if (opts.date !== undefined) checkReversalDate(opts.date, v.voucher_date, ctx.company.books_from);
     let date = opts.date ?? v.voucher_date;
     // Payments, receipts, journals and contras in a closed period are reversed with today's date.
     if (ctx.company.lock_date && date <= ctx.company.lock_date) date = todayIST();
@@ -432,6 +463,13 @@ export async function reverseInTx(tx: Db, companyId: string, voucherId: string, 
     await audit(tx, companyId, opts.userId, opts.source, 'REVERSE', 'voucher', voucherId, null, { reversal: posted.id, voucherNo });
     return { id: posted.id, voucherNo, voucherType: v.base_type, date, totalMinor: v.total_minor, alreadyPosted: false };
   }
+}
+
+/** A reversal cannot undo a voucher before it existed, nor sit before the books begin. */
+function checkReversalDate(date: unknown, voucherDate: string, booksFrom: string) {
+  if (!isIsoDate(date)) throw invalid('Reversal date is not a valid date');
+  if (date < voucherDate) throw invalid(`A reversal cannot be dated before the voucher it reverses (${voucherDate})`);
+  if (date < booksFrom) throw new AppError('BEFORE_BOOKS', 422, `Books begin on ${booksFrom}`);
 }
 
 /** Re-walks the hash chain; returns the first broken link if any. */

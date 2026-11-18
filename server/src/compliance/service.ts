@@ -1,6 +1,6 @@
 import { many, maybeOne, one, type Db, type Database } from '../db/client';
 import { invalid, notFound } from '../lib/errors';
-import { addDays, daysBetween, todayIST } from '../lib/dates';
+import { addDays, daysBetween, shiftMonths, todayIST } from '../lib/dates';
 import { toMinor } from '../lib/money';
 import { audit } from '../ledger/post';
 import { gstSummary } from '../reports/gst';
@@ -67,13 +67,23 @@ export async function complianceItems(db: Db, companyId: string, from: string, t
     const g = await gstSummary(db, companyId, it.periodFrom, it.periodTo);
     let payable = BigInt(g.netPayableMinor);
     if (it.kind === 'GSTR3B' && settings.gstFrequency === 'QUARTERLY') {
-      const paid = items.filter((p) => p.kind === 'PMT06' && p.periodFrom >= it.periodFrom && p.periodTo <= it.periodTo)
-        .reduce((s, p) => s + (p.record?.amountMinor ?? 0n), 0n);
+      const paid = await pmt06Paid(db, companyId, it.periodFrom);
       payable = payable > paid ? payable - paid : 0n;
     }
     it.estimateMinor = payable;
   }
   return items.sort((a, b) => a.due.localeCompare(b.due) || a.key.localeCompare(b.key));
+}
+
+/**
+ * PMT-06 paid for the first two months of the quarter starting `qFrom`, read from the records themselves: the
+ * calendar window often leaves those months out (a view from mid-quarter), and the estimate must still net them.
+ */
+async function pmt06Paid(db: Db, companyId: string, qFrom: string): Promise<bigint> {
+  const keys = [qFrom, shiftMonths(qFrom, 1)].map((m) => `PMT06:${m.slice(0, 7)}:${m.slice(0, 7)}`);
+  const r = await one<{ s: bigint }>(db,
+    `SELECT COALESCE(SUM(amount_minor), 0)::bigint AS s FROM compliance_records WHERE company_id = $1 AND key = ANY($2::text[])`, [companyId, keys]);
+  return r.s;
 }
 
 /** What needs attention now: overdue, and due within each item's reminder window. Oldest first. */

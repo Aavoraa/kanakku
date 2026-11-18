@@ -101,6 +101,16 @@ describe('parsing helpers', () => {
     expect(st2.lines.map((l) => [String(l.debitMinor), String(l.creditMinor)])).toEqual([['5000000', '0'], ['0', '1500']]);
     expect(st2.issues.map((i) => i.code)).toContain('BALANCE_BREAK');   // 10000 + 15 is not 9015
   });
+  it('reads a Type column of Deposit / Withdrawal by whole word ("Deposit" starts with d but is money in)', async () => {
+    const [sheet] = await readSheets(Buffer.from(['Date,Description,Amount,Type,Balance',
+      '01/09/2026,CASH DEP BRANCH,"1,000.00",Deposit,6000', '02/09/2026,ATM,200,Withdrawal,5800',
+      '03/09/2026,NEFT IN,50,DEP,5850', '04/09/2026,CHQ,25,DR.,5825', '05/09/2026,INT,5,CR,5830', ''].join('\n')), 'csv');
+    const st = parseStatementSheet(sheet)!;
+    expect(st.lines.map((l) => [String(l.debitMinor), String(l.creditMinor)])).toEqual([
+      ['0', '100000'], ['20000', '0'], ['0', '5000'], ['2500', '0'], ['0', '500'],
+    ]);
+    expect(st.issues).toEqual([]);
+  });
 });
 
 // A statement for the demo company's HDFC account. Four lines are already in the books (demo vouchers).
@@ -234,6 +244,20 @@ describe('workings and registers (Excel/CSV, no AI)', () => {
 
     const again = await upload('sales-register-2.csv', 'text/csv', registerCsv('\n'));
     expect((await entries(again.id)).map((e) => e.status)).toEqual(['IN_BOOKS', 'IN_BOOKS']);
+  });
+
+  it('books two invoices to the same new unregistered customer as one party', async () => {
+    const csv = Buffer.from(['Sales Register October',
+      'Invoice No,Invoice Date,Customer Name,GSTIN,Taxable Value,CGST,SGST,IGST,Invoice Value',
+      `INV-201,${dmy(d(2))},Lakshmi Hardware,,1000,90,90,,1180`,
+      `INV-202,${dmy(d(1))},LAKSHMI HARDWARE,,2000,180,180,,2360`, ''].join('\n'));
+    const r = await upload('sales-register-new-party.csv', 'text/csv', csv);
+    const es = await entries(r.id);
+    expect(es.every((e) => e.suggestion.newParty?.kind === 'CUSTOMER')).toBe(true);
+    for (const e of es) await postEntry(db, companyId, r.id, e.id, user, { confirmWarnings: true });
+    const parties = await many<{ id: string }>(db, `SELECT id FROM counterparties WHERE company_id = $1 AND lower(legal_name) = 'lakshmi hardware'`, [companyId]);
+    expect(parties).toHaveLength(1);
+    expect((await entries(r.id)).map((e) => e.status)).toEqual(['POSTED', 'POSTED']);
   });
 
   it('auto-posts confident entries when switched on', async () => {

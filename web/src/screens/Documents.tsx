@@ -32,6 +32,10 @@ const countText = (c: Record<string, number> | null) => {
 };
 
 // ---------------------------------------------------------------- Upload + list
+/** Upload requests (Ctrl+U, the Upload button on Home) that already opened the file chooser. Each navigation brings
+ *  its own params object, so coming Back to the queue from a document does not pop the chooser up again. */
+const uploadAsked = new WeakSet<object>();
+
 export function DocumentsQueue({ params }: { params?: { upload?: boolean } }) {
   const app = useApp();
   const [docs, setDocs] = useState<DocRow[]>([]);
@@ -58,7 +62,11 @@ export function DocumentsQueue({ params }: { params?: { upload?: boolean } }) {
     const t = setInterval(() => void load(), 2000);
     return () => clearInterval(t);
   }, [docs, load]);
-  useEffect(() => { if (params?.upload) setTimeout(() => fileRef.current?.click(), 50); }, [params?.upload]);
+  useEffect(() => {
+    if (!params?.upload || uploadAsked.has(params)) return;
+    uploadAsked.add(params);
+    setTimeout(() => fileRef.current?.click(), 50);
+  }, [params]);
   useKeys({ 'Ctrl+U': () => { fileRef.current?.click(); } });
 
   const upload = async (files: FileList | File[]) => {
@@ -160,18 +168,27 @@ export function DocumentsQueue({ params }: { params?: { upload?: boolean } }) {
 // ---------------------------------------------------------------- Opening a document
 /** Single bills open the bill review; statements, workings and registers open the entries review. */
 export function DocumentScreen({ params }: { params: { id: string } }) {
+  const app = useApp();
   const [kind, setKind] = useState<'bill' | 'entries' | null>(null);
+  const [err, setErr] = useState<{ message: string } | null>(null);
   useEffect(() => {
     let stop = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const check = async () => {
-      const d = await api.get<{ docType: string | null; status: string; entries: unknown[] }>(c(`/documents/${params.id}`));
-      if (stop) return;
-      if (d.status === 'RECEIVED' || d.status === 'PROCESSING') { setKind(null); setTimeout(check, 1500); return; }
-      setKind(d.entries.length > 0 || (d.docType && MULTI.has(d.docType)) ? 'entries' : 'bill');
+      try {
+        const d = await api.get<{ docType: string | null; status: string; entries: unknown[] }>(c(`/documents/${params.id}`));
+        if (stop) return;
+        if (d.status === 'RECEIVED' || d.status === 'PROCESSING') { setKind(null); timer = setTimeout(check, 1500); return; }
+        setKind(d.entries.length > 0 || (d.docType && MULTI.has(d.docType)) ? 'entries' : 'bill');
+      } catch (e) {
+        // A deleted document or a dropped connection: say so, instead of "Reading…" for ever.
+        if (!stop) setErr({ message: e instanceof ApiError ? e.message : String(e) });
+      }
     };
     void check();
-    return () => { stop = true; };
+    return () => { stop = true; clearTimeout(timer); };
   }, [params.id]);
+  if (err) return <div><ErrorBox error={err} /><button onClick={() => app.back()}>Back to documents</button></div>;
   if (kind === null) return <div className="muted">Reading the document…</div>;
   return kind === 'bill' ? <ReviewDoc params={params} /> : <EntriesReview id={params.id} />;
 }

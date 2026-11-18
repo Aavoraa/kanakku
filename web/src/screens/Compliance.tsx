@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, c, ApiError, type ComplianceItem, type ComplianceSettings, type ComplianceTask } from '../api';
 import { useApp } from '../state';
 import { Empty, ErrorBox, Panel, ScreenHead, Stat } from '../components/ui';
@@ -32,8 +32,14 @@ export function Compliance() {
   const [showReminders, setShowReminders] = useState(false);
   const to = addDays(start, 123);
 
+  // Only the newest load may land, so a fast Earlier/Later never shows the new range with the old range's items.
+  const seq = useRef(0);
   const load = useCallback(async () => {
-    try { setView(await api.get<View>(c(`/compliance?from=${start}&to=${to}`))); setErr(null); } catch (e) { setErr(asErr(e)); }
+    const n = ++seq.current;
+    try {
+      const v = await api.get<View>(c(`/compliance?from=${start}&to=${to}`));
+      if (n === seq.current) { setView(v); setErr(null); }
+    } catch (e) { if (n === seq.current) setErr(asErr(e)); }
   }, [start, to]);
   useEffect(() => { void load(); }, [load, app.dataVersion]);
   /** Saved something: reload here and refresh the bell. */

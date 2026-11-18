@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { many, maybeOne, one, type Db, type Database } from '../db/client';
 import { AppError, invalid } from '../lib/errors';
 import { isValidGstin, gstinState, STATES } from '../lib/gstin';
-import { fyStart, todayIST } from '../lib/dates';
+import { fyStart, isIsoDate, todayIST } from '../lib/dates';
 import { createCompany } from '../ledger/masters';
 import { seedDemo, DEMO_COMPANY_NAME } from '../db/demo';
 import { config } from '../config';
@@ -105,13 +105,14 @@ function noteFailure(email: string) {
 export interface CompanyDetails { name: string; gstin?: string | null; stateCode?: string | null; booksFrom?: string | null }
 
 export function validateCompany(c: CompanyDetails | undefined): { name: string; gstin: string | null; stateCode: string; booksFrom: string } {
-  if (!c || !c.name?.trim()) throw invalid('Enter your business name');
+  if (!c || typeof c.name !== 'string' || !c.name.trim()) throw invalid('Enter your business name');
+  if (c.gstin && typeof c.gstin !== 'string') throw invalid('That GSTIN is not valid. Check it, or leave it empty if you are not registered.');
   const gstin = c.gstin?.trim().toUpperCase() || null;
   if (gstin && !isValidGstin(gstin)) throw invalid('That GSTIN is not valid. Check it, or leave it empty if you are not registered.');
   const stateCode = gstin ? gstinState(gstin) : c.stateCode ?? '';
   if (!STATES[stateCode]) throw invalid('Choose the state your business is registered in');
   const booksFrom = c.booksFrom || fyStart(todayIST());
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(booksFrom)) throw invalid('Books start date is not valid');
+  if (!isIsoDate(booksFrom)) throw invalid('Books start date is not valid');
   return { name: c.name.trim().slice(0, 120), gstin, stateCode, booksFrom };
 }
 
@@ -126,11 +127,12 @@ export interface SignupInput {
 
 /** Creates the account and its first company. The first account on a server also takes over books created before accounts existed. */
 export async function signup(db: Database, s: SignupInput): Promise<{ user: User; companyId: string }> {
-  const email = s.email?.trim().toLowerCase() ?? '';
-  if (!s.name?.trim()) throw invalid('Enter your name');
+  // The body is JSON from anyone: a number or object where text belongs is a 422, not a crash on .trim().
+  const email = typeof s.email === 'string' ? s.email.trim().toLowerCase() : '';
+  if (typeof s.name !== 'string' || !s.name.trim()) throw invalid('Enter your name');
   if (!EMAIL_RE.test(email)) throw invalid('Enter a valid email address');
-  if (!s.password || s.password.length < 8) throw invalid('Password must be at least 8 characters');
-  if (s.phone && !/^[+\d][\d\s-]{6,16}$/.test(s.phone.trim())) throw invalid('Mobile number is not valid');
+  if (typeof s.password !== 'string' || s.password.length < 8) throw invalid('Password must be at least 8 characters');
+  if (s.phone && (typeof s.phone !== 'string' || !/^[+\d][\d\s-]{6,16}$/.test(s.phone.trim()))) throw invalid('Mobile number is not valid');
   const company = validateCompany(s.company);
   if (await maybeOne(db, `SELECT 1 FROM users WHERE email = $1`, [email])) {
     throw new AppError('EMAIL_TAKEN', 409, 'An account with this email already exists. Log in instead.');
@@ -182,13 +184,13 @@ export async function createDemoLogin(db: Database, demoLogin: { email: string; 
   await addDemo(db, user.id);
 }
 
-export async function login(db: Db, emailRaw: string, password: string): Promise<User> {
-  const email = emailRaw?.trim().toLowerCase() ?? '';
+export async function login(db: Db, emailRaw: unknown, password: unknown): Promise<User> {
+  const email = typeof emailRaw === 'string' ? emailRaw.trim().toLowerCase() : '';
   checkLock(email);
   const row = await maybeOne<User & { password_hash: string }>(db,
     `SELECT id, email, name, phone, password_hash FROM users WHERE email = $1`, [email]);
   // Same message whether the email or the password was wrong.
-  if (!row || !(await verifyPassword(password ?? '', row.password_hash))) {
+  if (!row || typeof password !== 'string' || !(await verifyPassword(password, row.password_hash))) {
     noteFailure(email);
     throw new AppError('BAD_LOGIN', 401, 'Email or password is incorrect.');
   }

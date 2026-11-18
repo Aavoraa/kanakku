@@ -3,7 +3,7 @@ import { many, maybeOne, one, type Db, type Database } from '../db/client';
 import { AppError, invalid, notFound } from '../lib/errors';
 import { addDays, fyStart } from '../lib/dates';
 import { isValidGstin, gstinPan, gstinState } from '../lib/gstin';
-import { fromMinor, percentToPpm, toMinor } from '../lib/money';
+import { DEC_RE, fromMinor, percentToPpm, toMinor } from '../lib/money';
 import { normName } from '../lib/text';
 import { audit, postVoucher } from './post';
 
@@ -118,19 +118,28 @@ export async function createGroup(db: Db, companyId: string, g: { name: string; 
     [companyId, g.parentId, g.name, parent.nature, parent.affects_gross_profit, `${parent.path}.${label}`]);
 }
 
+/** An opening amount as typed. Checked before anything is created, so a typo is a 422 and leaves no half-made ledger. */
+export function openingMinor(v: unknown): bigint {
+  if (v === undefined || v === null || v === '') return 0n;
+  const s = typeof v === 'string' || typeof v === 'number' ? String(v).replace(/,/g, '').trim() : '';
+  if (!DEC_RE.test(s)) throw invalid('Enter the opening balance in rupees, like 25000');
+  return toMinor(s);
+}
+
 export async function createLedger(db: Database, companyId: string, l: {
   name: string; groupId: string; openingBalance?: string | null; openingSide?: 'DR' | 'CR'; billWise?: boolean;
 }, userId: string) {
   const name = l.name.trim();
   if (!name) throw invalid('Ledger name is required');
+  const opening = openingMinor(l.openingBalance);
   const exists = await maybeOne(db, `SELECT 1 FROM ledgers WHERE company_id = $1 AND lower(name) = lower($2)`, [companyId, name]);
   if (exists) throw new AppError('DUPLICATE_NAME', 409, `A ledger named "${name}" already exists`);
   const row = await one<{ id: string }>(db,
     `INSERT INTO ledgers (company_id, group_id, name, norm_name, bill_wise) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
     [companyId, l.groupId, name, normName(name), Boolean(l.billWise)]);
   await audit(db, companyId, userId, 'MANUAL', 'CREATE', 'ledger', row.id, null, l);
-  if (l.openingBalance && toMinor(l.openingBalance) !== 0n) {
-    await setOpeningBalance(db, companyId, row.id, toMinor(l.openingBalance) * (l.openingSide === 'CR' ? -1n : 1n), userId);
+  if (opening !== 0n) {
+    await setOpeningBalance(db, companyId, row.id, opening * (l.openingSide === 'CR' ? -1n : 1n), userId);
   }
   return row;
 }
@@ -154,6 +163,7 @@ export const REG_TYPES = new Set(['REGULAR', 'COMPOSITION', 'UNREGISTERED', 'CON
 export async function createParty(db: Database, companyId: string, p: NewParty, userId: string, channel = 'MANUAL') {
   const name = p.name.trim();
   if (!name) throw invalid('Party name is required');
+  const amt = openingMinor(p.openingBalance);
   const gstin = p.gstin?.trim().toUpperCase() || null;
   if (gstin && !isValidGstin(gstin)) throw invalid(`GSTIN ${gstin} is not valid (check digit or format)`);
   if (gstin) {
@@ -178,8 +188,7 @@ export async function createParty(db: Database, companyId: string, p: NewParty, 
     await audit(tx, companyId, userId, channel, 'CREATE', 'party', cp.id, null, p);
     return { id: cp.id, ledgerId: ledger.id };
   });
-  if (p.openingBalance && toMinor(p.openingBalance) !== 0n) {
-    const amt = toMinor(p.openingBalance);
+  if (amt !== 0n) {
     await setOpeningBalance(db, companyId, result.ledgerId, p.kind === 'CUSTOMER' ? amt : -amt, userId);
   }
   return result;
@@ -189,7 +198,7 @@ export async function createParty(db: Database, companyId: string, p: NewParty, 
 export async function setOpeningBalance(db: Database, companyId: string, ledgerId: string, targetMinor: bigint, userId: string) {
   const company = await one<{ books_from: string }>(db, `SELECT books_from::text FROM companies WHERE id = $1`, [companyId]);
   const current = await one<{ s: bigint | null }>(db,
-    `SELECT SUM(e.amount_minor) AS s FROM ledger_entries e JOIN vouchers v ON v.id = e.voucher_id
+    `SELECT SUM(e.amount_minor)::bigint AS s FROM ledger_entries e JOIN vouchers v ON v.id = e.voucher_id
        JOIN voucher_types t ON t.id = v.voucher_type_id
       WHERE e.ledger_id = $1 AND t.base_type = 'OPENING'`, [ledgerId]);
   const delta = targetMinor - (current.s ?? 0n);
@@ -204,7 +213,7 @@ export async function setOpeningBalance(db: Database, companyId: string, ledgerI
       { ledgerId, side: delta > 0n ? 'DR' : 'CR', amount },
       { ledgerId: diff.id, side: delta > 0n ? 'CR' : 'DR', amount },
     ],
-  }, { source: 'MANUAL', idempotencyKey: `opening:${ledgerId}:${crypto.randomUUID()}`, userId });
+  }, { source: 'MANUAL', idempotencyKey: `opening:${ledgerId}:${crypto.randomUUID()}`, userId, allowOpening: true });
 }
 
 export interface NewItem {

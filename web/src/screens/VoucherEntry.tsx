@@ -37,6 +37,8 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
   const [inclusive, setInclusive] = useState(init?.pricesIncludeTax ?? false);
   const [rcm, setRcm] = useState(init?.reverseCharge ?? false);
   const [narration, setNarration] = useState(init?.narration ?? '');
+  // Sales, purchases and notes can be typed as Dr/Cr ledger lines instead of items (posted exactly as entered).
+  const [manual, setManual] = useState(Boolean(init && !init.items?.length && init.entries?.length && TRADING.includes(init.voucherType as VoucherType)));
   const [items, setItems] = useState<ItemRow[]>(() => init?.items?.length ? init.items.map((i) => ({
     key: uid(), ref: i.itemId ? `item:${i.itemId}` : i.ledgerId ? `ledger:${i.ledgerId}` : null, description: i.description ?? '',
     qty: i.qty ?? '', rate: i.rate ?? '', amount: i.amount, gstRate: i.gstRate, hsnSac: i.hsnSac ?? '', amountTouched: true,
@@ -55,6 +57,9 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
   const formRef = useRef<HTMLDivElement>(null);
   const trading = TRADING.includes(type);
   const sales = type === 'SALES' || type === 'CREDIT_NOTE';
+  /** Item lines, worked out by the posting rules; otherwise Dr/Cr ledger lines typed by hand. */
+  const itemMode = trading && !manual;
+  const note = type === 'CREDIT_NOTE' || type === 'DEBIT_NOTE';
 
   // ---------- options ----------
   const partyOptions: Option[] = useMemo(() => masters.parties
@@ -67,14 +72,17 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
       .filter((l) => !l.taxComponent && l.systemCode !== 'ROUND_OFF')
       .map((l) => ({ id: `ledger:${l.id}`, label: l.name, sub: `Ledger · ${l.groupName}` })),
   ], [masters.items, masters.ledgers]);
-  const ledgerOptions: Option[] = useMemo(() => masters.ledgers.filter((l) => !l.taxComponent).map((l) => ({
-    id: l.id, label: l.name, sub: l.groupName, right: inr(l.balanceMinor, { abs: true }) + (BigInt(l.balanceMinor) > 0n ? ' Dr' : BigInt(l.balanceMinor) < 0n ? ' Cr' : ''),
-  })), [masters.ledgers]);
+  // Tax ledgers are offered only when typing a sale or purchase by hand, and only the right direction (output on sales).
+  const ledgerOptions: Option[] = useMemo(() => masters.ledgers
+    .filter((l) => !l.taxComponent || (manual && trading && l.taxDirection === (sales ? 'OUTPUT' : 'INPUT')))
+    .map((l) => ({
+      id: l.id, label: l.name, sub: l.groupName, right: inr(l.balanceMinor, { abs: true }) + (BigInt(l.balanceMinor) > 0n ? ' Dr' : BigInt(l.balanceMinor) < 0n ? ' Cr' : ''),
+    })), [masters.ledgers, manual, trading, sales]);
 
   // ---------- build input ----------
   const buildInput = useCallback((confirmWarnings = false): VoucherInput | null => {
     const base = { voucherType: type, date, narration: narration || null, confirmWarnings };
-    if (trading) {
+    if (itemMode) {
       const lines: ItemLineInput[] = items.filter((r) => r.amount && toMinor(r.amount) !== null).map((r) => ({
         itemId: r.ref?.startsWith('item:') ? r.ref.slice(5) : null,
         ledgerId: r.ref?.startsWith('ledger:') ? r.ref.slice(7) : null,
@@ -92,22 +100,23 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
       ledgerId: e.ledgerId!, side: e.side, amount: e.amount, billRef: e.billRef || null,
     }));
     if (lines.length < 2) return null;
+    if (trading) return { ...base, partyRefNo: refNo || null, partyRefDate: refDate || null, originalRef: originalRef || null, entries: lines };
     return { ...base, entries: lines };
-  }, [type, date, narration, trading, items, partyId, mode, bankId, refNo, refDate, originalRef, inclusive, rcm, entries]);
+  }, [type, date, narration, trading, itemMode, items, partyId, mode, bankId, refNo, refDate, originalRef, inclusive, rcm, entries]);
 
   // A line with an amount that cannot be read ("55OO") would otherwise be left out of the voucher without a word.
   const badAmount = useMemo(() => {
-    const rows = trading ? items : entries;
+    const rows = itemMode ? items : entries;
     const i = rows.findIndex((r) => r.amount.trim() !== '' && toMinor(r.amount) === null);
     return i < 0 ? null : `Line ${i + 1}: "${rows[i].amount}" is not an amount. Use digits only, like 5500 or 5500.50.`;
-  }, [trading, items, entries]);
+  }, [itemMode, items, entries]);
 
   // ---------- live preview ----------
   useEffect(() => {
     const input = buildInput(true);
     setPendingWarnings(null);
     if (badAmount) { setPreview(null); setError({ message: badAmount }); return; }
-    if (!input || (trading && mode === 'CREDIT' && !partyId)) { setPreview(null); setError(null); return; }
+    if (!input || (itemMode && mode === 'CREDIT' && !partyId)) { setPreview(null); setError(null); return; }
     // Only the newest preview may land; an older, slower reply would show the wrong tax and total.
     let live = true;
     const t = setTimeout(async () => {
@@ -115,11 +124,11 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
       catch (e) { if (live) { setPreview(null); setError(e instanceof ApiError ? { message: e.message, details: e.details } : { message: String(e) }); } }
     }, 250);
     return () => { live = false; clearTimeout(t); };
-  }, [buildInput, trading, mode, partyId, badAmount]);
+  }, [buildInput, itemMode, mode, partyId, badAmount]);
 
   const entryDiff = useMemo(() => entries.reduce((s, e) => s + (toMinor(e.amount || '0') ?? 0n) * (e.side === 'DR' ? 1n : -1n), 0n), [entries]);
 
-  const dirty = trading ? items.some((r) => r.amount || r.ref) || Boolean(partyId) : entries.some((e) => e.amount || e.ledgerId);
+  const dirty = itemMode ? items.some((r) => r.amount || r.ref) || Boolean(partyId) : entries.some((e) => e.amount || e.ledgerId);
   // Leaving through the sidebar or search asks first, like Esc does, so a half-typed voucher is not lost by a stray click.
   const { setLeaveGuard } = app;
   useEffect(() => {
@@ -137,9 +146,21 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
   const switchType = (t: VoucherType) => {
     if (params?.alterOf) return;
     setType(t);
-    if (!TRADING.includes(t)) setEntries(defaultEntries(t));
+    // Ledger lines start afresh: a sale's output-tax lines make no sense on a purchase or a payment.
+    if (!TRADING.includes(t) || manual) setEntries(defaultEntries(t));
     if (t === 'SALES' || t === 'PURCHASE') setMode('CREDIT');
     setPartyId(null);
+    setTimeout(() => firstRef.current?.focus(), 30);
+  };
+
+  /** Item invoice <-> Dr/Cr lines. Lines typed in one way do not carry over, so ask before throwing them away. */
+  const switchMode = (toManual: boolean) => {
+    if (toManual === manual || !trading) return;
+    const typed = toManual ? items.some((r) => r.amount || r.ref) : entries.some((e) => e.amount || e.ledgerId);
+    if (typed && !window.confirm(toManual ? 'Switch to Dr/Cr lines? The item lines typed so far are cleared.' : 'Switch to item lines? The Dr/Cr lines typed so far are cleared.')) return;
+    setManual(toManual);
+    if (toManual) setEntries(defaultEntries(type)); else setItems([blankItem()]);
+    setPreview(null); setError(null); setPendingWarnings(null);
     setTimeout(() => firstRef.current?.focus(), 30);
   };
 
@@ -185,12 +206,10 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
   const keymap: Record<string, () => boolean | void> = {
     'Ctrl+A': () => { void post(); },
     F2: () => { dateRef.current?.focus(); },
-    Escape: () => {
-      if (dirty && !window.confirm('Discard this voucher?')) return;
-      app.back();
-    },
+    Escape: () => { if (app.mayLeave()) app.back(); },
   };
-  keymap['Alt+N'] = () => { if (!trading) addEntry(); };
+  keymap['Alt+N'] = () => { if (!itemMode) addEntry(); };
+  keymap['Alt+M'] = () => { if (trading) switchMode(!manual); };
   for (const [k, t] of Object.entries(SWITCH)) keymap[k] = () => switchType(t);
   useKeys(keymap, !creating);
 
@@ -253,13 +272,20 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
           ))}
         </div>
       </ScreenHead>
+      {trading && (
+        <div className="entry-mode" role="radiogroup" aria-label="How to enter this voucher">
+          <button role="radio" aria-checked={!manual} className={!manual ? 'on' : ''} onClick={() => switchMode(false)}>Item invoice</button>
+          <button role="radio" aria-checked={manual} className={manual ? 'on' : ''} onClick={() => switchMode(true)}>Manual Dr/Cr</button>
+          <span className="muted small"><Kbd>Alt+M</Kbd> {manual ? 'Type every ledger line, GST ledgers included. Debits must equal credits.' : 'Items and GST are worked into debits and credits for you.'}</span>
+        </div>
+      )}
       {params?.docEntry && <div className="warn small">From an uploaded document, line {params.docEntry.lineNo}. Posting here completes that line.{params.docEntry.note ? ` ${params.docEntry.note}` : ''}</div>}
 
       <div className="voucher-body">
         <div className="voucher-main">
           <div className="field-row">
             <label className="w-date"><span>Date <Kbd>F2</Kbd></span><input ref={dateRef} type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
-            {trading && (
+            {itemMode && (
               <>
                 <label className="grow">{sales ? 'Party (customer)' : 'Party (supplier)'}
                   <Picker ref={firstRef} autoFocus options={partyOptions} value={partyId} onChange={setPartyId}
@@ -281,14 +307,14 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
                 <label>Supplier invoice no.<input value={refNo} onChange={(e) => setRefNo(e.target.value)} maxLength={16} /></label>
                 <label className="w-date">Invoice date<input type="date" value={refDate} onChange={(e) => setRefDate(e.target.value)} /></label>
               </>}
-              {(type === 'CREDIT_NOTE' || type === 'DEBIT_NOTE') && <label>Against invoice no.<input value={originalRef} onChange={(e) => setOriginalRef(e.target.value)} /></label>}
-              <label className="check"><input type="checkbox" checked={inclusive} onChange={(e) => setInclusive(e.target.checked)} /> Amounts include GST</label>
-              {type === 'PURCHASE' && <label className="check"><input type="checkbox" checked={rcm} onChange={(e) => setRcm(e.target.checked)} /> Reverse charge</label>}
-              {party && <span className="party-meta">{party.gstin ? `GSTIN ${party.gstin}` : 'Unregistered'} · {party.stateCode ? status.states[party.stateCode] : 'state unknown'} · balance {inr(party.balanceMinor, { abs: true })} {BigInt(party.balanceMinor) >= 0n ? 'Dr' : 'Cr'}</span>}
+              {note && <label>Against invoice no.<input value={originalRef} onChange={(e) => setOriginalRef(e.target.value)} /></label>}
+              {itemMode && <label className="check"><input type="checkbox" checked={inclusive} onChange={(e) => setInclusive(e.target.checked)} /> Amounts include GST</label>}
+              {itemMode && type === 'PURCHASE' && <label className="check"><input type="checkbox" checked={rcm} onChange={(e) => setRcm(e.target.checked)} /> Reverse charge</label>}
+              {itemMode && party && <span className="party-meta">{party.gstin ? `GSTIN ${party.gstin}` : 'Unregistered'} · {party.stateCode ? status.states[party.stateCode] : 'state unknown'} · balance {inr(party.balanceMinor, { abs: true })} {BigInt(party.balanceMinor) >= 0n ? 'Dr' : 'Cr'}</span>}
             </div>
           )}
 
-          {trading ? (
+          {itemMode ? (
             <table className="grid">
               <thead><tr><th>#</th><th>Item / ledger</th><th className="num">Qty</th><th className="num">Rate</th><th className="num">Amount ₹</th><th className="num">GST %</th><th></th></tr></thead>
               <tbody>
@@ -326,7 +352,8 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
                         onChange={(id) => setEntry(e.key, { ledgerId: id })} placeholder="Ledger · Alt+C new"
                         onCreate={(q) => setCreating({ kind: 'ledger', name: q, apply: (id) => setEntry(e.key, { ledgerId: id }) })} /></td>
                       <td className="w-amt"><input className="num" value={e.amount} onChange={(ev) => setEntry(e.key, { amount: ev.target.value })} inputMode="decimal" /></td>
-                      <td>{l?.billWise ? <BillRef ledgerId={l.id} value={e.billRef} onChange={(v) => setEntry(e.key, { billRef: v })} /> : <span className="muted">—</span>}</td>
+                      <td>{l?.billWise ? <BillRef ledgerId={l.id} value={e.billRef} onChange={(v) => setEntry(e.key, { billRef: v })}
+                        blank={!trading ? 'On account' : note ? (originalRef ? `Against ${originalRef}` : 'On account') : 'This invoice (new bill)'} /> : <span className="muted">—</span>}</td>
                       <td>{entries.length > 2 && <button className="ghost" tabIndex={-1} aria-label="Remove line" onClick={() => setEntries((rows) => rows.filter((x) => x.key !== e.key))}>×</button>}</td>
                     </tr>
                   );
@@ -338,7 +365,8 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
 
           <label className="narration">Narration<textarea rows={2} value={narration} onChange={(e) => setNarration(e.target.value)} /></label>
           {!trading && <p className="muted small">Pick a party with bill-wise tracking to allocate against an open bill. Leave the bill ref empty to post on account.</p>}
-          {trading && !partyId && mode === 'CREDIT' && <p className="muted small">Choose a party, or switch the mode to Cash for a counter sale.</p>}
+          {manual && trading && <p className="muted small">Lines on GST ledgers are counted in the GST summary at the ledger's rate. A party line with no bill ref becomes {note ? 'an adjustment against the invoice above' : "this invoice's bill"}.</p>}
+          {itemMode && !partyId && mode === 'CREDIT' && <p className="muted small">Choose a party, or switch the mode to Cash for a counter sale.</p>}
         </div>
 
         <aside className="voucher-side" aria-live="polite">
@@ -363,7 +391,7 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
               </dl>}
               {preview.warnings.map((w) => <div key={w.code} className="warn">{w.message}</div>)}
             </>
-          ) : <p className="muted">Entries appear here as you type. Debits, credits and tax are worked out by the posting rules.</p>}
+          ) : <p className="muted">{manual && trading ? 'Entries appear here once debits equal credits.' : 'Entries appear here as you type. Debits, credits and tax are worked out by the posting rules.'}</p>}
           {pendingWarnings && (
             <div className="warn strong" role="alert">
               {pendingWarnings.map((w) => <div key={w}>{w}</div>)}
@@ -384,13 +412,19 @@ export function VoucherEntry({ params }: { params?: { type?: VoucherType; input?
   );
 }
 
-function BillRef({ ledgerId, value, onChange }: { ledgerId: string; value: string; onChange: (v: string) => void }) {
+function BillRef({ ledgerId, value, onChange, blank }: { ledgerId: string; value: string; onChange: (v: string) => void; blank: string }) {
   const [bills, setBills] = useState<{ billRef: string; billDate: string; openMinor: string }[]>([]);
-  useEffect(() => { void api.get<typeof bills>(c(`/bills/open?ledgerId=${ledgerId}`)).then(setBills).catch(() => setBills([])); }, [ledgerId]);
+  useEffect(() => {
+    // Only this ledger's reply may land: switching ledgers quickly must not show the previous party's bills.
+    let live = true;
+    setBills([]);
+    void api.get<typeof bills>(c(`/bills/open?ledgerId=${ledgerId}`)).then((b) => { if (live) setBills(b); }).catch(() => { if (live) setBills([]); });
+    return () => { live = false; };
+  }, [ledgerId]);
   const id = `bills-${ledgerId}`;
   return (
     <>
-      <input list={id} value={value} onChange={(e) => onChange(e.target.value)} placeholder={bills.length ? `${bills.length} open · on account if blank` : 'On account'} />
+      <input list={id} value={value} onChange={(e) => onChange(e.target.value)} placeholder={bills.length ? `${bills.length} open · blank: ${blank.toLowerCase()}` : blank} aria-label="Bill reference" />
       <datalist id={id}>{bills.map((b) => <option key={b.billRef} value={b.billRef}>{`${b.billDate} · ₹${inr(b.openMinor, { abs: true })}`}</option>)}</datalist>
     </>
   );

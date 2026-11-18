@@ -2,7 +2,7 @@ import Decimal from 'decimal.js';
 import { many, maybeOne } from '../db/client';
 import { AppError } from '../lib/errors';
 import { addDays } from '../lib/dates';
-import { percentToPpm, toMinor } from '../lib/money';
+import { formatINR, percentToPpm, toMinor } from '../lib/money';
 import { computeGst } from '../tax/india-gst';
 import type { ItemLine, VoucherInput } from './contracts';
 import type { LedgerContext, LedgerInfo, Party } from './context';
@@ -75,12 +75,19 @@ function usable(l: LedgerInfo): LedgerInfo {
 
 export async function buildPlan(ctx: LedgerContext, input: VoucherInput): Promise<Plan> {
   switch (input.voucherType) {
-    case 'SALES': return tradingPlan(ctx, input, 'SALES_SIDE', 1n);
-    case 'CREDIT_NOTE': return tradingPlan(ctx, input, 'SALES_SIDE', -1n);
-    case 'PURCHASE': return tradingPlan(ctx, input, 'PURCHASE_SIDE', 1n);
-    case 'DEBIT_NOTE': return tradingPlan(ctx, input, 'PURCHASE_SIDE', -1n);
+    case 'SALES': return trading(ctx, input, 'SALES_SIDE', 1n);
+    case 'CREDIT_NOTE': return trading(ctx, input, 'SALES_SIDE', -1n);
+    case 'PURCHASE': return trading(ctx, input, 'PURCHASE_SIDE', 1n);
+    case 'DEBIT_NOTE': return trading(ctx, input, 'PURCHASE_SIDE', -1n);
     default: return accountingPlan(ctx, input);
   }
+}
+
+/** Sales, purchases and notes come either as item lines (worked out here) or, entered by hand, as Dr/Cr ledger lines. */
+function trading(ctx: LedgerContext, input: VoucherInput, side: 'SALES_SIDE' | 'PURCHASE_SIDE', sign: 1n | -1n) {
+  return input.items.length === 0 && input.entries.length > 0
+    ? manualTradingPlan(ctx, input, side, sign)
+    : tradingPlan(ctx, input, side, sign);
 }
 
 async function loadItems(ctx: LedgerContext, items: ItemLine[]) {
@@ -257,6 +264,95 @@ async function tradingPlan(
   };
 }
 
+/**
+ * A sales, purchase or note voucher entered by hand as Dr/Cr ledger lines: posted exactly as typed. Lines on GST
+ * ledgers are also recorded as tax lines (rate from the ledger, taxable value worked back from the tax), so the GST
+ * summary and returns still see them. A party line with no bill reference becomes this invoice's bill, as in item mode.
+ */
+async function manualTradingPlan(
+  ctx: LedgerContext, input: VoucherInput, side: 'SALES_SIDE' | 'PURCHASE_SIDE', sign: 1n | -1n,
+): Promise<Plan> {
+  if (input.entries.length < 2) throw fail('TOO_FEW_LINES', 'A voucher needs at least two lines');
+  const sales = side === 'SALES_SIDE';
+  const direction = sales ? 'OUTPUT' : 'INPUT';
+  const warnings: Warning[] = [];
+  const entries: PlanEntry[] = [];
+  const taxLines: PlanTaxLine[] = [];
+  let counterpartyId = input.counterpartyId ?? null;
+
+  for (const [idx, e] of input.entries.entries()) {
+    const lineNo = idx + 1;
+    const ledger = usable(ctx.ledger(e.ledgerId));
+    const amount = toMinor(e.amount);
+    if (amount <= 0n) throw fail('BAD_AMOUNT', `Line ${lineNo}: amount must be positive`);
+    const signed = e.side === 'DR' ? amount : -amount;
+    const entry: PlanEntry = { ledgerId: ledger.id, amountMinor: signed };
+
+    if (ledger.taxComponent) {
+      if (ledger.taxDirection !== direction) {
+        throw fail('WRONG_TAX_LEDGER', `Line ${lineNo}: ${ledger.name} is ${ledger.taxDirection === 'OUTPUT' ? 'output' : ledger.taxDirection === 'INPUT' ? 'input' : 'reverse-charge'} tax; a ${sales ? 'sales' : 'purchase'} voucher uses ${sales ? 'output' : 'input'} tax ledgers`);
+      }
+      // The tax side is a credit on sales and a debit on purchases; notes reverse it.
+      const expected = (sales ? -1n : 1n) * sign;
+      if ((signed > 0n ? 1n : -1n) !== expected) {
+        warnings.push({ code: 'TAX_SIDE', message: `Line ${lineNo}: ${ledger.name} is usually ${expected > 0n ? 'debited' : 'credited'} on this voucher.` });
+      }
+      // Recorded like item mode: positive on an invoice, negative on a note; a line on the unusual side counts against.
+      const taxMinor = signed * expected * sign;
+      const ratePpm = ledger.taxRatePpm ?? 0;
+      taxLines.push({
+        itemLineNo: lineNo, hsnSac: null, component: ledger.taxComponent, ratePpm,
+        taxableMinor: ratePpm > 0 ? (taxMinor * 1_000_000n) / BigInt(ratePpm) : 0n, taxMinor,
+        ledgerId: ledger.id, direction, reverseCharge: false, itcEligible: true,
+      });
+    }
+
+    if (ledger.billWise && ledger.counterpartyId) {
+      counterpartyId ??= ledger.counterpartyId;
+      if (e.billRef || e.billType) {
+        entry.bill = await allocationFor(ctx, input, ledger, e.billRef ?? null, e.billType ?? null);
+      } else if (sign === 1n) {
+        const party = await ctx.party(ledger.counterpartyId);
+        const billDate = (!sales && input.partyRefDate) || input.date;
+        const due = input.dueDate ?? (party?.credit_days ? addDays(billDate, party.credit_days) : null);
+        entry.bill = { ref: (!sales && input.partyRefNo) || VNO, type: 'NEW_REF', billDate, dueDate: due };
+      } else {
+        entry.bill = input.originalRef
+          ? { ref: input.originalRef, type: 'AGST_REF', billDate: input.date, dueDate: null }
+          : { ref: 'On Account', type: 'ON_ACCOUNT', billDate: input.date, dueDate: null };
+      }
+    }
+    entries.push(entry);
+  }
+
+  const partyLine = input.entries.some((e) => ctx.ledger(e.ledgerId).counterpartyId);
+  if (input.voucherType === 'PURCHASE' && partyLine && !input.partyRefNo) {
+    throw fail('SUPPLIER_INVOICE_REQUIRED', "Enter the supplier's invoice number");
+  }
+  if ((input.voucherType === 'CREDIT_NOTE' || input.voucherType === 'DEBIT_NOTE') && !input.originalRef) {
+    warnings.push({ code: 'NO_ORIGINAL_INVOICE', message: 'GST requires a note to reference the original invoice.' });
+  }
+  assertBalanced(entries);
+
+  const party = counterpartyId ? await ctx.party(counterpartyId) : null;
+  const components = new Set(taxLines.map((t) => t.component));
+  const taxMinor = taxLines.reduce((s, t) => s + t.taxMinor, 0n);
+  return {
+    baseType: input.voucherType,
+    entries,
+    taxLines,
+    inventory: [],
+    totalMinor: sumDebits(entries),
+    taxableMinor: taxLines.filter((t) => t.component !== 'SGST' && t.component !== 'UTGST' && t.component !== 'CESS').reduce((s, t) => s + t.taxableMinor, 0n),
+    taxMinor,
+    roundOffMinor: 0n,
+    counterpartyId,
+    placeOfSupply: input.placeOfSupply ?? (sales ? party?.state_code ?? ctx.company.state_code : ctx.company.state_code),
+    intraState: components.has('IGST') ? false : components.has('CGST') ? true : null,
+    warnings,
+  };
+}
+
 async function accountingPlan(ctx: LedgerContext, input: VoucherInput): Promise<Plan> {
   const t = input.voucherType;
   if (input.entries.length < 2) throw fail('TOO_FEW_LINES', 'A voucher needs at least two lines');
@@ -339,7 +435,7 @@ export function mergeSameLedger(entries: PlanEntry[]): PlanEntry[] {
 
 export function assertBalanced(entries: PlanEntry[]) {
   const sum = entries.reduce((s, e) => s + e.amountMinor, 0n);
-  if (sum !== 0n) throw new AppError('UNBALANCED', 422, `Debits and credits differ by ${sum} paise`);
+  if (sum !== 0n) throw new AppError('UNBALANCED', 422, `Debits and credits differ by ₹${formatINR(sum < 0n ? -sum : sum)} (${sum > 0n ? 'more debit' : 'more credit'})`);
   if (entries.length < 2) throw new AppError('UNBALANCED', 422, 'A voucher needs at least two non-zero lines');
 }
 

@@ -2,12 +2,21 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api, c, onUnauthenticated, setCompany, type Company, type Group, type Item, type Ledger, type Party, type Status, type Uom, type User } from './api';
 import { AuthScreen } from './screens/Auth';
 import { CompanyForm } from './components/CompanyForm';
+import { todayIST } from './format';
 
 export type Screen =
   | 'gateway' | 'voucher' | 'daybook' | 'voucher-view' | 'tb' | 'pl' | 'bs' | 'ageing' | 'ledger'
   | 'stock' | 'gst' | 'masters' | 'review' | 'review-doc' | 'settings' | 'compliance' | 'profile' | 'petty-cash' | 'assets' | 'upkeep';
 
-export interface Route { screen: Screen; params?: Record<string, any> }
+export interface Route {
+  screen: Screen; params?: Record<string, any>;
+  /** Set when the route is pushed or replaced: every navigation gets its own, so the screen mounts afresh with its new params. */
+  id?: number;
+}
+
+let navCount = 0;
+const stamp = (r: Route): Route => ({ ...r, id: ++navCount });
+const HOME = (): Route[] => [stamp({ screen: 'gateway' })];
 
 interface Masters {
   ledgers: Ledger[];
@@ -40,6 +49,9 @@ interface AppState {
   open: (r: Route) => void;
   /** A screen with unsaved work (a half-typed voucher) sets the question to ask before the sidebar leaves it. */
   setLeaveGuard: (question: string | null) => void;
+  /** Asks that question, if one is set; true when it is fine to leave. `back` itself does not ask, because a screen
+   *  goes back on its own after saving; the Back button and Esc ask through this first. */
+  mayLeave: () => boolean;
   toast: (msg: string, kind?: 'ok' | 'error' | 'info') => void;
   dataVersion: number;
   bumpData: () => void;
@@ -67,7 +79,7 @@ export function AppProvider({ children }: { children: (toasts: { id: number; msg
   const [companies, setCompanies] = useState<Company[]>([]);
   const [companyId, setCompanyIdState] = useState<string | null>(null);
   const [masters, setMasters] = useState<Masters>({ ledgers: [], parties: [], items: [], groups: [], uoms: [] });
-  const [stack, setStack] = useState<Route[]>([{ screen: 'gateway' }]);
+  const [stack, setStack] = useState<Route[]>(HOME);
   const [toasts, setToasts] = useState<{ id: number; msg: string; kind: string }[]>([]);
   const [dataVersion, setDataVersion] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -100,7 +112,7 @@ export function AppProvider({ children }: { children: (toasts: { id: number; msg
       setCompany(pick.id);
       rememberCompany(pick.id);
       setCompanyIdState(pick.id);
-      setStack([{ screen: 'gateway' }]);
+      setStack(HOME());
       await refreshMasters();
     } else {
       setCompanyIdState(null);
@@ -137,8 +149,22 @@ export function AppProvider({ children }: { children: (toasts: { id: number; msg
     setUser(null);
     setCompanies([]);
     setCompanyIdState(null);
-    setStack([{ screen: 'gateway' }]);
+    setStack(HOME());
   }, []);
+
+  // A tab left open overnight still has yesterday as "today" (the default date of vouchers, Day Book and petty cash,
+  // and the latest date petty cash accepts). When the window comes back on a new day, ask the server again.
+  useEffect(() => {
+    if (!status) return;
+    const check = () => {
+      if (document.visibilityState === 'visible' && todayIST() !== status.today) {
+        void api.get<Status>('/api/v1/status').then(setStatus).catch(() => { /* try again on the next focus */ });
+      }
+    };
+    window.addEventListener('focus', check);
+    document.addEventListener('visibilitychange', check);
+    return () => { window.removeEventListener('focus', check); document.removeEventListener('visibilitychange', check); };
+  }, [status]);
 
   const leaveGuard = useRef<string | null>(null);
   const mayLeave = () => {
@@ -149,17 +175,19 @@ export function AppProvider({ children }: { children: (toasts: { id: number; msg
   const company = companies.find((x) => x.id === companyId) ?? null;
   const value = useMemo<AppState | null>(() => (status && user && company ? {
     status, user, setUser, company, companies,
-    switchCompany: (id: string) => { void reloadCompanies(id); },
+    switchCompany: (id: string) => { if (mayLeave()) void reloadCompanies(id); },
     reloadCompanies, logout,
     masters, refreshMasters, refreshCompany,
     route: stack[stack.length - 1],
     stackDepth: stack.length,
-    go: (r) => setStack((s) => [...s, r]),
-    replace: (r) => setStack((s) => [...s.slice(0, -1), r]),
+    // Going to another screen unmounts this one, so a half-typed voucher would be lost: ask first.
+    go: (r) => { if (mayLeave()) setStack((s) => [...s, stamp(r)]); },
+    replace: (r) => setStack((s) => [...s.slice(0, -1), stamp(r)]),
     back: () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s)),
-    home: () => { if (mayLeave()) setStack([{ screen: 'gateway' }]); },
-    open: (r) => { if (mayLeave()) setStack(r.screen === 'gateway' ? [{ screen: 'gateway' }] : [{ screen: 'gateway' }, r]); },
+    home: () => { if (mayLeave()) setStack(HOME()); },
+    open: (r) => { if (mayLeave()) setStack(r.screen === 'gateway' ? HOME() : [...HOME(), stamp(r)]); },
     setLeaveGuard: (q) => { leaveGuard.current = q; },
+    mayLeave,
     toast,
     dataVersion,
     bumpData: () => { setDataVersion((v) => v + 1); void refreshMasters(); },

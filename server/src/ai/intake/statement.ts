@@ -66,6 +66,16 @@ export function findStatementHeader(rows: Cell[][]): { row: number; cols: Cols }
   return best ? { row: best.row, cols: best.cols } : null;
 }
 
+// Whole words of a Type / Dr-Cr column. A prefix test reads "Deposit" (starts with d) as money out.
+const OUT_WORDS = new Set(['d', 'dr', 'db', 'debit', 'debits', 'withdrawal', 'withdrawals', 'withdraw', 'wdl', 'wd', 'w']);
+const IN_WORDS = new Set(['c', 'cr', 'credit', 'credits', 'deposit', 'deposits', 'dep', 'dpst']);
+
+/** true for money out, false for money in, null when the column says neither (the amount's sign decides). */
+function drcrWord(t: string): boolean | null {
+  const w = t.toLowerCase().match(/[a-z]+/)?.[0] ?? '';
+  return OUT_WORDS.has(w) ? true : IN_WORDS.has(w) ? false : null;
+}
+
 const minor = (c: Cell): bigint => { const d = parseAmount(c); return d ? decToMinor(d.abs()) : 0n; };
 
 export function parseStatementSheet(sheet: Sheet): Statement | null {
@@ -92,7 +102,7 @@ export function parseStatementSheet(sheet: Sheet): Statement | null {
     } else {
       const amt = parseAmount(row[cols.amount] ?? null) ?? new Decimal(0);
       const t = cols.drcr >= 0 ? cellText(row[cols.drcr] ?? null).toLowerCase() : '';
-      const out = t ? /^(d|dr|debit|withdrawal)/.test(t) : amt.isNegative();
+      const out = drcrWord(t) ?? amt.isNegative();
       const m = decToMinor(amt.abs());
       if (out) debit = m; else credit = m;
     }

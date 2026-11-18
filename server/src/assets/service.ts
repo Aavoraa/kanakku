@@ -166,9 +166,19 @@ export interface LogInput {
   confirmWarnings?: boolean;
 }
 
+/** An upkeep log already saved (by its request key or its voucher), shaped as logUpkeep returns it. */
+async function loggedFor(db: Db, companyId: string, where: string, value: string) {
+  const r = await maybeOne<{ id: string; voucher_id: string | null; voucher_no: string | null }>(db,
+    `SELECT l.id, l.voucher_id, v.voucher_no FROM asset_logs l LEFT JOIN vouchers v ON v.id = l.voucher_id
+      WHERE l.company_id = $1 AND l.${where} ORDER BY l.created_at LIMIT 1`, [companyId, value]);
+  return r ? { id: r.id, voucher: r.voucher_id ? { id: r.voucher_id, voucherNo: r.voucher_no!, alreadyPosted: true } : null } : null;
+}
+
 /** Records a repair or service; can post its cost (GST included) and tick off the calendar reminder it settles. */
 export async function logUpkeep(db: Database, companyId: string, assetId: string, g: LogInput, opts: { idempotencyKey: string; userId: string }) {
   const a = await asset(db, companyId, assetId);
+  const again = await loggedFor(db, companyId, `idempotency_key = $2`, opts.idempotencyKey);
+  if (again) return again;
   const date = optDate(g.date, 'Date');
   if (!date) throw invalid('Enter the date');
   if (date > todayIST()) throw invalid('The date cannot be in the future');
@@ -179,7 +189,7 @@ export async function logUpkeep(db: Database, companyId: string, assetId: string
   const cost = optMoney(g.cost, 'cost');
   if (g.scheduleKey && !g.scheduleKey.startsWith('ASSET:')) throw invalid('Unknown upkeep reminder');
 
-  let voucher: { id: string; voucherNo: string } | null = null;
+  let voucher: { id: string; voucherNo: string; alreadyPosted?: boolean } | null = null;
   if (g.paidFromLedgerId) {
     if (!cost || cost <= 0n) throw invalid('Enter the cost to post it');
     const ctx = await LedgerContext.load(db, companyId);
@@ -188,11 +198,16 @@ export async function logUpkeep(db: Database, companyId: string, assetId: string
       date, expenseLedgerId: g.expenseLedgerId || await repairsLedger(db, companyId, opts.userId), amount: fromMinor(cost), gstRate: g.gstRate,
       paidFromLedgerId: g.paidFromLedgerId, paidTo: g.vendor, billNo: g.billNo, narration: `${a.name}: ${description}`,
     }, { idempotencyKey: opts.idempotencyKey, userId: opts.userId, confirmWarnings: g.confirmWarnings });
+    // Logged before the key was kept on the log row: the log of that voucher is the one this request made.
+    if (voucher.alreadyPosted) {
+      const prior = await loggedFor(db, companyId, `voucher_id = $2`, voucher.id);
+      if (prior) return prior;
+    }
   }
   const row = await one<{ id: string }>(db,
-    `INSERT INTO asset_logs (asset_id, company_id, log_date, kind, description, cost_minor, voucher_id, vendor, logged_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-    [assetId, companyId, date, kind, description, cost, voucher?.id ?? null, text(g.vendor, 200), opts.userId]);
+    `INSERT INTO asset_logs (asset_id, company_id, log_date, kind, description, cost_minor, voucher_id, vendor, logged_by, idempotency_key)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+    [assetId, companyId, date, kind, description, cost, voucher?.id ?? null, text(g.vendor, 200), opts.userId, opts.idempotencyKey]);
   await audit(db, companyId, opts.userId, 'MANUAL', 'CREATE', 'asset_log', row.id, null, { asset: a.name, date, kind, description, cost: cost === null ? null : fromMinor(cost), voucher: voucher?.voucherNo ?? null });
   if (g.scheduleKey) {
     await saveRecord(db, companyId, g.scheduleKey, { doneOn: date, reference: voucher?.voucherNo ?? null, amount: cost === null ? null : fromMinor(cost), notes: description }, opts.userId);

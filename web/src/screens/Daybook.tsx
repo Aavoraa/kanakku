@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, c } from '../api';
+import { api, c, ApiError } from '../api';
 import { useApp } from '../state';
 import { useKeys, isTyping } from '../keys';
-import { Empty, Kbd, ScreenHead, Stat } from '../components/ui';
+import { Empty, ErrorBox, Kbd, ScreenHead, Stat } from '../components/ui';
 import { fmtDate, inr, TYPE_LABEL } from '../format';
 
 interface Row {
@@ -14,19 +14,32 @@ interface Row {
 const sumOf = (rows: Row[], type: string) =>
   rows.filter((r) => r.voucherType === type && !r.reversesVoucherId && !r.reversedBy).reduce((s, r) => s + BigInt(r.totalMinor), 0n);
 
+/** Enter opens the selected voucher only when nothing else has focus or focus is in the list (synthetic presses have no target). */
+const onList = (e: KeyboardEvent) => {
+  const t = e.target;
+  return !(t instanceof HTMLElement) || t === document.body || Boolean(t.closest('table.list'));
+};
+
 export function Daybook({ params }: { params?: { from?: string; to?: string; type?: string } }) {
   const app = useApp();
   const [from, setFrom] = useState(params?.from ?? app.status.today);
   const [to, setTo] = useState(params?.to ?? app.status.today);
   const [type, setType] = useState(params?.type ?? '');
   const [rows, setRows] = useState<Row[] | null>(null);
+  const [err, setErr] = useState<{ message: string; details?: unknown } | null>(null);
   const [sel, setSel] = useState(0);
   const fromRef = useRef<HTMLInputElement>(null);
   const tbody = useRef<HTMLTableSectionElement>(null);
 
   useEffect(() => {
+    // Only the newest reply may land, so a fast change of period or type never shows an older list. A failed load
+    // (a cleared date) empties the list rather than leaving the previous period's rows under the new dates.
+    let live = true;
     const q = new URLSearchParams({ from, to, ...(type ? { type } : {}) });
-    void api.get<Row[]>(c(`/vouchers?${q}`)).then((r) => { setRows(r); setSel(0); });
+    api.get<Row[]>(c(`/vouchers?${q}`))
+      .then((r) => { if (live) { setRows(r); setSel(0); setErr(null); } })
+      .catch((e) => { if (live) { setRows([]); setErr(e instanceof ApiError ? { message: e.message, details: e.details } : { message: String(e) }); } });
+    return () => { live = false; };
   }, [from, to, type, app.dataVersion]);
 
   useEffect(() => { (tbody.current?.children[sel] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' }); }, [sel]);
@@ -37,7 +50,8 @@ export function Daybook({ params }: { params?: { from?: string; to?: string; typ
     F2: () => { fromRef.current?.focus(); },
     ArrowDown: (e) => { if (isTyping(e)) return false; setSel((s) => Math.min(s + 1, (rows?.length ?? 1) - 1)); },
     ArrowUp: (e) => { if (isTyping(e)) return false; setSel((s) => Math.max(s - 1, 0)); },
-    Enter: (e) => { if (isTyping(e)) return false; open(rows?.[sel]); },
+    // Enter on a focused button or link (Back, the sidebar) belongs to that control, not to the selected voucher.
+    Enter: (e) => { if (isTyping(e) || !onList(e)) return false; open(rows?.[sel]); },
   });
 
   const total = rows?.filter((r) => !r.reversesVoucherId && !r.reversedBy).reduce((s, r) => s + BigInt(r.totalMinor), 0n) ?? 0n;
@@ -64,7 +78,8 @@ export function Daybook({ params }: { params?: { from?: string; to?: string; typ
           <Stat label="Total" value={`₹${inr(total)}`} note="excluding reversed pairs" />
         </section>
       )}
-      {rows && rows.length === 0 ? <Empty>No vouchers in this period. Press <Kbd>F8</Kbd> to record a sale.</Empty> : (
+      <ErrorBox error={err} />
+      {err ? null : rows && rows.length === 0 ? <Empty>No vouchers in this period. Press <Kbd>F8</Kbd> to record a sale.</Empty> : (
         <table className="list selectable">
           <thead><tr><th>Date</th><th>Particulars</th><th>Type</th><th>No.</th><th className="num">Amount ₹</th><th>Via</th></tr></thead>
           <tbody ref={tbody}>

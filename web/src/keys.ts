@@ -3,12 +3,13 @@ import { useEffect, useRef } from 'react';
 /**
  * One keymap registry for the whole app. Screens push handler maps; the most recently
  * mounted map wins, then earlier ones, then the global map in App. A handler returns
- * false to let the key fall through.
+ * false to let the key fall through. While a dialog (a modal map) is open, only dialog
+ * maps run: Ctrl+A typed in the Ctrl+K palette must not post the voucher behind it.
  */
 type Handler = (e: KeyboardEvent) => boolean | void;
 type KeyMap = Record<string, Handler>;
 
-const stack: { map: React.MutableRefObject<KeyMap> }[] = [];
+const stack: { map: React.MutableRefObject<KeyMap>; modal: boolean }[] = [];
 
 export function comboOf(e: KeyboardEvent): string {
   let key = e.key;
@@ -22,7 +23,10 @@ let globalMap: React.MutableRefObject<KeyMap> | null = null;
 
 export function dispatchKey(e: KeyboardEvent): boolean {
   const combo = comboOf(e);
-  const maps = [...stack.map((s) => s.map).reverse(), ...(globalMap ? [globalMap] : [])];
+  const modals = stack.filter((s) => s.modal);
+  const maps = modals.length
+    ? modals.map((s) => s.map).reverse()
+    : [...stack.map((s) => s.map).reverse(), ...(globalMap ? [globalMap] : [])];
   for (const m of maps) {
     const h = m.current[combo];
     if (h && h(e) !== false) {
@@ -54,18 +58,19 @@ export function useGlobalKeys(map: KeyMap) {
   }, []);
 }
 
-export function useKeys(map: KeyMap, active = true) {
+/** `modal`: the map of a dialog; while one is mounted, screen and global maps are skipped. */
+export function useKeys(map: KeyMap, active = true, modal = false) {
   const ref = useRef(map);
   ref.current = map;
   useEffect(() => {
     if (!active) return;
-    const entry = { map: ref };
+    const entry = { map: ref, modal };
     stack.push(entry);
     return () => {
       const i = stack.indexOf(entry);
       if (i >= 0) stack.splice(i, 1);
     };
-  }, [active]);
+  }, [active, modal]);
 }
 
 export const isTyping = (e: KeyboardEvent) => {

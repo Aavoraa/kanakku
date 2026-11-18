@@ -12,6 +12,13 @@ export function divRound(n: bigint, d: bigint): bigint {
 
 export const DEC_RE = /^-?\d+(\.\d+)?$/;
 
+/** Rupees typed by a person ("1,234.50", 500) -> paise, or null when it is not a plain non-negative amount. */
+export function parseRupees(v: unknown): bigint | null {
+  if (typeof v !== 'string' && typeof v !== 'number') return null;
+  const s = String(v).replace(/,/g, '').trim();
+  return /^\d+(\.\d+)?$/.test(s) ? toMinor(s) : null;
+}
+
 /** "1234.5" (rupees) -> 123450n (paise). Rounds half-up beyond 2 decimals. */
 export function toMinor(rupees: string | number | Decimal): bigint {
   const d = new Decimal(rupees as Decimal.Value);

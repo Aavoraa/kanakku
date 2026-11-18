@@ -4,7 +4,8 @@ import { inr, drcr } from '../format';
 import type { TreeNode } from '../api';
 
 export function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
-  useKeys({ Escape: () => { onClose(); } });
+  // A modal map: while the dialog is open the screen's shortcuts (Ctrl+A post, F-keys) stay off.
+  useKeys({ Escape: () => { onClose(); } }, true, true);
   const ref = useRef<HTMLDivElement>(null);
   // Focus the first field, not the close button that precedes it in the DOM.
   useEffect(() => { (ref.current?.querySelector<HTMLElement>('input,select,textarea') ?? ref.current?.querySelector<HTMLElement>('button'))?.focus(); }, []);

@@ -1,6 +1,6 @@
 import { many, maybeOne, one, type Db } from '../db/client';
 import { notFound } from '../lib/errors';
-import { addDays } from '../lib/dates';
+import { addDays, fyStart } from '../lib/dates';
 
 export async function daybook(db: Db, companyId: string, from: string, to: string, opts: { type?: string; partyId?: string } = {}) {
   return many(db,
@@ -53,12 +53,16 @@ export async function voucherDetail(db: Db, companyId: string, id: string) {
 }
 
 export async function ledgerStatement(db: Db, companyId: string, ledgerId: string, from: string, to: string) {
-  const ledger = await maybeOne<{ id: string; name: string; group_name: string }>(db,
-    `SELECT l.id, l.name, g.name AS group_name FROM ledgers l JOIN ledger_groups g ON g.id = l.group_id
+  const ledger = await maybeOne<{ id: string; name: string; group_name: string; nature: string; fy_start_month: number }>(db,
+    `SELECT l.id, l.name, g.name AS group_name, g.nature, c.fy_start_month
+       FROM ledgers l JOIN ledger_groups g ON g.id = l.group_id JOIN companies c ON c.id = l.company_id
       WHERE l.id = $1 AND l.company_id = $2`, [ledgerId, companyId]);
   if (!ledger) throw notFound('Ledger');
+  // Income and expense ledgers start each financial year at nil (earlier years went into profit), as in the trial balance.
+  const since = ledger.nature === 'INCOME' || ledger.nature === 'EXPENSE' ? fyStart(from, ledger.fy_start_month) : '0001-01-01';
   const opening = await one<{ s: bigint }>(db,
-    `SELECT COALESCE(SUM(amount_minor), 0)::bigint AS s FROM ledger_entries WHERE ledger_id = $1 AND voucher_date < $2`, [ledgerId, from]);
+    `SELECT COALESCE(SUM(amount_minor), 0)::bigint AS s FROM ledger_entries WHERE ledger_id = $1 AND voucher_date >= $3 AND voucher_date < $2`,
+    [ledgerId, from, since]);
   const rows = await many<{ voucherId: string; date: string; voucherNo: string; voucherType: string; amountMinor: bigint; particulars: string | null; narration: string | null; billRef: string | null }>(db,
     `SELECT v.id AS "voucherId", e.voucher_date::text AS date, v.voucher_no AS "voucherNo", t.base_type AS "voucherType",
             e.amount_minor AS "amountMinor", v.narration, b.bill_ref AS "billRef",

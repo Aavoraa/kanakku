@@ -78,10 +78,11 @@ export function PettyCash() {
             <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{label}</button>
           ))}
         </div>
-        {tab === 'expense' && <ExpenseForm box={box} onDone={changed} />}
-        {tab === 'topup' && <TopUpForm box={box} onDone={changed} />}
-        {tab === 'count' && <CountForm box={box} denoms={denoms} onDone={changed} />}
-        {tab === 'settings' && <BoxSettings box={box} onDone={changed} />}
+        {/* Keyed by box: the forms start from the box's figures, so another box must start a fresh form, not save this one's values onto it. */}
+        {tab === 'expense' && <ExpenseForm key={box.id} box={box} onDone={changed} />}
+        {tab === 'topup' && <TopUpForm key={box.id} box={box} onDone={changed} />}
+        {tab === 'count' && <CountForm key={box.id} box={box} denoms={denoms} onDone={changed} />}
+        {tab === 'settings' && <BoxSettings key={box.id} box={box} onDone={changed} />}
       </div>
       <PettyBook box={box} />
     </div>

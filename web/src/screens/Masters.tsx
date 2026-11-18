@@ -184,6 +184,8 @@ export function Settings() {
         {autoPost && <label>Auto-post only up to (₹ per entry) — larger ones wait for Ctrl+A<input value={autoPostLimit} onChange={(e) => setAutoPostLimit(e.target.value)} inputMode="decimal" /></label>}
         <label>Voucher numbers by financial year from
           <select value={fyNumbering} onChange={(e) => setFyNumbering(e.target.value)}>
+            {/* Without this the browser shows the first year as chosen while Save sends nothing. */}
+            {!co.fyNumberingFrom && <option value="">Not yet: plain numbers</option>}
             {fyNumbering && !fyOptions.includes(fyNumbering) && <option value={fyNumbering}>{fyNumbering}</option>}
             {fyOptions.map((d) => <option key={d} value={d}>{d} (like {sampleNo(d)})</option>)}
           </select>

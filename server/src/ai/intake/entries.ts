@@ -2,6 +2,7 @@ import { many, maybeOne, one, type Db, type Database } from '../../db/client';
 import { AppError, notFound } from '../../lib/errors';
 import { isValidGstin } from '../../lib/gstin';
 import { formatINR } from '../../lib/money';
+import { normName } from '../../lib/text';
 import { bigintJson, postVoucher, previewVoucher, type Source } from '../../ledger/post';
 import type { VoucherInputRaw } from '../../ledger/contracts';
 import { createParty } from '../../ledger/masters';
@@ -143,6 +144,21 @@ export async function setSkipped(db: Database, companyId: string, documentId: st
   await finishIfDone(db, documentId);
 }
 
+/**
+ * The party a suggested new one already is: same GSTIN, else same name. A register can bill one new customer twice,
+ * and a post that failed after creating the party is retried; both must find it, not create it again. A same-named
+ * party with a different GSTIN is another registration and is not taken.
+ */
+async function existingParty(db: Db, companyId: string, name: string, gstin: string | null) {
+  if (gstin) {
+    const byGstin = await maybeOne<{ id: string }>(db, `SELECT id FROM counterparties WHERE company_id = $1 AND gstin = $2`, [companyId, gstin]);
+    if (byGstin) return byGstin;
+  }
+  return maybeOne<{ id: string }>(db,
+    `SELECT id FROM counterparties WHERE company_id = $1 AND norm_name = $2 AND (gstin IS NULL OR $3::text IS NULL OR gstin = $3)
+      ORDER BY created_at LIMIT 1`, [companyId, normName(name), gstin]);
+}
+
 /** Posts one entry. Party creation and learning happen here, after the reviewer committed to it. */
 export async function postEntry(db: Database, companyId: string, documentId: string, entryId: string, userId: string, opts: { payload?: VoucherInputRaw; confirmWarnings?: boolean; source?: Source } = {}) {
   const e = await loadEntry(db, companyId, documentId, entryId);
@@ -154,9 +170,9 @@ export async function postEntry(db: Database, companyId: string, documentId: str
 
   const np = e.suggestion.newParty;
   if (!payload.counterpartyId && np && ['SALES', 'PURCHASE', 'CREDIT_NOTE', 'DEBIT_NOTE'].includes(payload.voucherType)) {
-    const existing = np.gstin && isValidGstin(np.gstin)
-      ? await maybeOne<{ id: string }>(db, `SELECT id FROM counterparties WHERE company_id = $1 AND gstin = $2`, [companyId, np.gstin]) : null;
-    const created = existing ?? await createParty(db, companyId, { name: np.name, kind: np.kind, gstin: np.gstin && isValidGstin(np.gstin) ? np.gstin : null }, userId, 'IMPORT');
+    const gstin = np.gstin && isValidGstin(np.gstin) ? np.gstin.trim().toUpperCase() : null;
+    const existing = await existingParty(db, companyId, np.name, gstin);
+    const created = existing ?? await createParty(db, companyId, { name: np.name, kind: np.kind, gstin }, userId, 'IMPORT');
     payload = { ...payload, counterpartyId: created.id };
     await learnPartyAlias(db, companyId, np.name, created.id);
   }
