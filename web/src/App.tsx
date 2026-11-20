@@ -186,7 +186,7 @@ function UserMenu() {
           <button role="menuitem" onClick={() => { setOpen(false); app.open({ screen: 'settings' }); }}><span><Icon name="settings" size={15} /> Company settings</span></button>
           <hr />
           <div className="theme-switch" role="radiogroup" aria-label="Appearance">
-            {([['system', 'Auto', 'settings'], ['light', 'Light', 'sun'], ['dark', 'Dark', 'moon']] as const).map(([t, label, icon]) => (
+            {([['system', 'Auto', 'settings'], ['light', 'Light', 'sun'], ['dark', 'Dark', 'moon'], ['max', 'Max', 'sparkle']] as const).map(([t, label, icon]) => (
               <button key={t} role="radio" aria-checked={theme === t} className={theme === t ? 'on' : ''} onClick={() => pick(t)}><Icon name={icon} size={14} /> {label}</button>
             ))}
           </div>

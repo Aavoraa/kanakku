@@ -1,10 +1,11 @@
-/** Light, dark, or follow the computer. Remembered per browser; applied before the first paint (main.tsx).
- * Light (soft violet) until someone picks Dark (black and gold) or System. */
-export type Theme = 'system' | 'light' | 'dark';
-const KEY = 'kannaku.theme';
+/** Max (maximalist), light, dark, or follow the computer. Remembered per browser; applied before the first paint (main.tsx).
+ * Max until someone picks another look. The choice is kept under a new name: the old one was written on every visit,
+ * so it held "light" for everyone, chosen or not. */
+export type Theme = 'system' | 'light' | 'dark' | 'max';
+const KEY = 'kannaku.look';
 
 export function loadTheme(): Theme {
-  try { const t = localStorage.getItem(KEY); return t === 'dark' || t === 'system' ? t : 'light'; } catch { return 'light'; }
+  try { const t = localStorage.getItem(KEY); return t === 'light' || t === 'dark' || t === 'system' ? t : 'max'; } catch { return 'max'; }
 }
 
 export function applyTheme(t: Theme) {

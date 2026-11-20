@@ -58,7 +58,7 @@
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
+  :root:not([data-theme='light']):not([data-theme='max']) {
     --bg: #050505; --surface: #101010; --surface-2: #161512; --surface-3: #201d17;
     --text: #f5f0e4; --text-2: #d8d0bf; --muted: #9b917f; --line: #262219; --line-strong: #3a3325;
     --accent: #e2ab2c; --accent-strong: #f5c75a; --accent-soft: #2a210d; --accent-ink: #16120a; --teal: #b37f12;
@@ -257,7 +257,7 @@ td.overdue { color: var(--bad); }
 .src-ocr { background: #ddf4e6; color: #17663a; }
 :root[data-theme='dark'] .src-voice { background: #34264a; color: #d4b8ff; }
 :root[data-theme='dark'] .src-ocr { background: #173a28; color: #8fe0b3; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme='light']) .src-voice { background: #34264a; color: #d4b8ff; } :root:not([data-theme='light']) .src-ocr { background: #173a28; color: #8fe0b3; } }
+@media (prefers-color-scheme: dark) { :root:not([data-theme='light']):not([data-theme='max']) .src-voice { background: #34264a; color: #d4b8ff; } :root:not([data-theme='light']):not([data-theme='max']) .src-ocr { background: #173a28; color: #8fe0b3; } }
 .type-tag { display: inline-block; font-size: 0.74rem; font-weight: 640; padding: 0.12rem 0.5rem; border-radius: 99px; background: var(--surface-3); color: var(--text-2); }
 .type-tag.t-sales, .type-tag.t-receipt { background: var(--ok-soft); color: var(--ok); }
 .type-tag.t-purchase, .type-tag.t-payment { background: var(--warn-bg); color: var(--warn); }
@@ -736,3 +736,250 @@ body { background: var(--bg-art); background-attachment: fixed; }
 .entry-mode > button.on { background: var(--fill-grad); color: var(--fill-ink); border-color: transparent; box-shadow: 0 2px 10px var(--fill-glow); }
 .entry-mode > button.on:hover:not(:disabled) { background: var(--fill-grad); color: var(--fill-ink); filter: brightness(1.06); }
 .entry-mode > span { margin-left: 0.35rem; }
+
+/* ============================================================================================================
+   Max: the maximalist look. Loud colour, patterns, thick ink outlines, hard offset shadows, big italic serif
+   headings with a highlighter stroke. Every text/background pair is at least 4.5:1. Picked in the avatar menu.
+   ============================================================================================================ */
+:root[data-theme='max'] {
+  --ink: #1a1033;
+  --pop-yellow: #ffd23f; --pop-pink: #ff4f9a; --pop-cyan: #3ee0f5; --pop-lime: #b8f046; --pop-orange: #ff9a3c; --pop-lav: #c9b6ff;
+  --bg: #fff3dc;
+  --bg-art:
+    radial-gradient(circle at 1px 1px, rgba(26, 16, 51, 0.14) 1.4px, transparent 1.7px) 0 0 / 22px 22px,
+    radial-gradient(620px 420px at 100% 0%, rgba(255, 79, 154, 0.30), transparent 70%),
+    radial-gradient(560px 440px at 30% 110%, rgba(62, 224, 245, 0.32), transparent 70%),
+    radial-gradient(460px 400px at 72% 58%, rgba(255, 210, 63, 0.34), transparent 70%),
+    radial-gradient(420px 380px at 0% 40%, rgba(201, 182, 255, 0.45), transparent 70%),
+    #fff3dc;
+  --glass: #2b0f5c; --glass-line: #1a1033; --glass-hover: rgba(255, 243, 220, 0.12); --glass-shadow: 6px 6px 0 #1a1033;
+  --surface: #fffbf2;
+  --surface-2: #fff1d6;
+  --surface-3: #ffe6b8;
+  --text: #1a1033;
+  --text-2: #2e2350;
+  --muted: #5b4f7a;
+  --line: rgba(26, 16, 51, 0.16);
+  --line-strong: #1a1033;
+  --accent: #c4005f;
+  --accent-strong: #9e004c;
+  --accent-soft: #ffd6e8;
+  --accent-ink: #1a1033;
+  --teal: #3348ff;
+  --fill-grad: linear-gradient(135deg, #ffd23f 0%, #ffb23f 100%);
+  --fill-ink: #1a1033;
+  --fill-glow: transparent;
+  --fill-badge: #1a1033;
+  --edge-1: transparent; --edge-2: transparent; --edge-3: transparent; --edge-4: transparent; --edge-5: transparent; --edge-6: transparent;
+  --ok: #0a7a3c;
+  --ok-soft: #c9f7d9;
+  --bad: #c2121c;
+  --bad-soft: #ffd9d6;
+  --bad-ink: #ffffff;
+  --warn: #8a4b00;
+  --warn-bg: #ffe9a8;
+  --warn-line: #1a1033;
+  --sel: #ffd23f;
+  --kbd: #ffffff;
+  --series-1: #ff4f9a;
+  --series-2: #3348ff;
+  --shadow-sm: 4px 4px 0 #1a1033;
+  --shadow: 8px 8px 0 #1a1033;
+  --ring: 0 0 0 3px #ffd23f, 0 0 0 5px #1a1033;
+  --radius: 18px;
+  --radius-sm: 12px;
+  --display: Georgia, 'Palatino Linotype', 'Book Antiqua', Palatino, 'Times New Roman', serif;
+  color-scheme: light;
+}
+
+/* ---------- type ---------- */
+:root[data-theme='max'] h1 { font-family: var(--display); font-style: italic; font-weight: 800; font-size: 2.15rem; letter-spacing: -0.01em; line-height: 1.15; }
+:root[data-theme='max'] .home-head h1 { font-size: 2.5rem; }
+/* A highlighter stroke under page titles. */
+:root[data-theme='max'] .screen-head h1, :root[data-theme='max'] .home-head h1 {
+  display: inline; padding: 0 0.12em; -webkit-box-decoration-break: clone; box-decoration-break: clone;
+  background: linear-gradient(transparent 58%, var(--pop-yellow) 58%, var(--pop-yellow) 90%, transparent 90%);
+}
+:root[data-theme='max'] .screen-head .sub, :root[data-theme='max'] .home-head p { margin-top: 0.45rem; font-weight: 560; color: var(--text-2); }
+:root[data-theme='max'] h2 { font-family: var(--display); font-weight: 800; font-size: 1.18rem; }
+:root[data-theme='max'] h3 { color: var(--ink); font-weight: 800; letter-spacing: 0.12em; }
+:root[data-theme='max'] .panel-head h3 {
+  background: var(--ink); color: var(--pop-yellow); padding: 0.32rem 0.8rem; border-radius: 99px; font-size: 0.7rem;
+}
+:root[data-theme='max'] a { color: var(--accent); font-weight: 650; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+:root[data-theme='max'] kbd { border: 1.5px solid var(--ink); border-bottom-width: 3px; background: #ffffff; color: var(--ink); }
+:root[data-theme='max'] ::selection { background: var(--pop-pink); color: var(--ink); }
+
+/* ---------- panels: thick ink outline and a hard offset shadow ---------- */
+:root[data-theme='max'] :is(.card, .kpi, .tile, .panel, .list, .report, .grid, .voucher-main, .voucher-side, .form-pane, .facts,
+  .statement-summary, .petty-panel, .reminders, .cmp-settings, .due-box, .checks, .menu, .auth-card, .chart-tip) {
+  border: 2.5px solid var(--ink); box-shadow: var(--shadow-sm);
+}
+:root[data-theme='max'] .panel table.list, :root[data-theme='max'] .panel table.report, :root[data-theme='max'] .card table.list { box-shadow: none; border-width: 2px; }
+/* Section tiles alternate soft tints, so a screen reads as a patchwork. */
+:root[data-theme='max'] :is(.tile-grid, .tile-stack) > .panel:nth-child(4n+2) { background: #f3edff; }
+:root[data-theme='max'] :is(.tile-grid, .tile-stack) > .panel:nth-child(4n+3) { background: #e8fbf1; }
+:root[data-theme='max'] :is(.tile-grid, .tile-stack) > .panel:nth-child(4n+4) { background: #fff0f6; }
+:root[data-theme='max'] .voucher-side { background: #f3edff; }
+:root[data-theme='max'] .due-box { border-left: 10px solid var(--pop-pink); }
+
+/* Figure tiles: each a different bright colour, ink text, no side strip. */
+:root[data-theme='max'] :is(.kpis > .kpi, .tiles > .tile)::after { display: none; }
+:root[data-theme='max'] :is(.kpis > .kpi, .tiles > .tile):nth-child(6n+1) { background: var(--pop-yellow); }
+:root[data-theme='max'] :is(.kpis > .kpi, .tiles > .tile):nth-child(6n+2) { background: var(--pop-pink); }
+:root[data-theme='max'] :is(.kpis > .kpi, .tiles > .tile):nth-child(6n+3) { background: var(--pop-cyan); }
+:root[data-theme='max'] :is(.kpis > .kpi, .tiles > .tile):nth-child(6n+4) { background: var(--pop-lime); }
+:root[data-theme='max'] :is(.kpis > .kpi, .tiles > .tile):nth-child(6n+5) { background: var(--pop-orange); }
+:root[data-theme='max'] :is(.kpis > .kpi, .tiles > .tile):nth-child(6n+6) { background: var(--pop-lav); }
+:root[data-theme='max'] :is(.kpi-label, .tile-label) { color: var(--ink); font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.72rem; }
+:root[data-theme='max'] :is(.kpi-value, .tile-value) { color: var(--ink); font-family: var(--display); font-weight: 800; font-size: 1.5rem; }
+/* Six figures share the Home row, so they are set a size smaller there. */
+:root[data-theme='max'] .kpis .kpi-value { font-size: 1.22rem; letter-spacing: -0.01em; }
+:root[data-theme='max'] :is(.kpi-note, .tile-note), :root[data-theme='max'] .kpi.attention .kpi-note { color: var(--ink); font-weight: 650; }
+:root[data-theme='max'] .tile-note.bad { color: var(--ink); text-decoration: underline wavy var(--bad) 2px; }
+:root[data-theme='max'] .kpi-icon { background: #ffffff; color: var(--ink); border: 2px solid var(--ink); }
+:root[data-theme='max'] :is(.kpis > .kpi, .tiles > .tile).tile-warn {
+  background: repeating-linear-gradient(-45deg, var(--pop-yellow) 0 14px, var(--pop-orange) 14px 28px);
+}
+:root[data-theme='max'] .kpi:hover:not(:disabled), :root[data-theme='max'] button.tile:hover:not(:disabled) {
+  transform: translate(-2px, -2px); box-shadow: 6px 6px 0 var(--ink); border-color: var(--ink);
+}
+:root[data-theme='max'] .tab-tiles > .tile.on { box-shadow: var(--ring), 6px 6px 0 var(--ink); }
+:root[data-theme='max'] .tab-tiles > .tile.on .tile-label { color: var(--ink); text-decoration: underline 3px; text-underline-offset: 3px; }
+
+/* ---------- sidebar: dotted purple-to-plum, yellow active pill ---------- */
+:root[data-theme='max'] .sidebar {
+  background:
+    radial-gradient(circle at 1px 1px, rgba(255, 243, 220, 0.16) 1.3px, transparent 1.6px) 0 0 / 16px 16px,
+    linear-gradient(180deg, #2b0f5c 0%, #4a127a 55%, #7a1767 100%);
+  border: 2.5px solid var(--ink); box-shadow: 6px 6px 0 var(--ink); -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+:root[data-theme='max'] .brand-name { color: #fff3dc; font-family: var(--display); font-style: italic; font-size: 1.2rem; }
+:root[data-theme='max'] .brand-name b { color: var(--pop-yellow); }
+:root[data-theme='max'] .brand-mark { background: var(--pop-yellow); color: var(--ink); border: 2px solid var(--ink); border-radius: 11px; box-shadow: 3px 3px 0 var(--pop-pink); }
+:root[data-theme='max'] .nav-title { color: var(--pop-yellow); opacity: 1; letter-spacing: 0.14em; }
+:root[data-theme='max'] .nav-item { color: #fff3dc; background: transparent; border: 2px solid transparent; border-radius: 12px; font-weight: 600; }
+:root[data-theme='max'] .nav-item .icon-svg { color: var(--pop-lav); }
+:root[data-theme='max'] .nav-item:hover:not(:disabled) { background: rgba(255, 243, 220, 0.12); border-color: rgba(255, 243, 220, 0.35); color: #ffffff; }
+:root[data-theme='max'] .nav-item:hover .icon-svg { color: #ffffff; }
+:root[data-theme='max'] .nav-item.active, :root[data-theme='max'] .nav-item.active:hover:not(:disabled) {
+  background: var(--pop-yellow); color: var(--ink); border-color: var(--ink); box-shadow: 3px 3px 0 var(--pop-pink); filter: none;
+}
+:root[data-theme='max'] .nav-item.active .icon-svg, :root[data-theme='max'] .nav-item.active:hover .icon-svg { color: var(--ink); }
+:root[data-theme='max'] .nav-badge { background: var(--pop-pink); color: var(--ink); border: 1.5px solid var(--ink); }
+:root[data-theme='max'] .nav-badge.bad { background: var(--bad); color: #ffffff; }
+:root[data-theme='max'] .nav-item.active .nav-badge { background: var(--ink); color: var(--pop-yellow); }
+:root[data-theme='max'] .sidebar-foot { color: #c7b8ff; border-top: 2px dashed rgba(255, 243, 220, 0.3); }
+:root[data-theme='max'] .nav-scroll { scrollbar-color: var(--pop-yellow) transparent; }
+
+/* ---------- top bar with a ribbon underneath ---------- */
+:root[data-theme='max'] .topbar {
+  background: #fffbf2; border-bottom: 2.5px solid var(--ink); -webkit-backdrop-filter: none; backdrop-filter: none;
+  box-shadow: 0 4px 0 var(--pop-pink), 0 8px 0 var(--pop-yellow), 0 12px 0 var(--pop-cyan);
+}
+:root[data-theme='max'] .content { padding-top: 12px; }
+:root[data-theme='max'] .search-btn { border: 2px solid var(--ink); border-radius: 99px; background: #ffffff; color: var(--text-2); box-shadow: 3px 3px 0 var(--ink); font-weight: 560; }
+:root[data-theme='max'] .avatar { background: var(--pop-pink); color: var(--ink); border: 2px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); }
+:root[data-theme='max'] .avatar:hover:not(:disabled) { background: #ff6fae; }
+:root[data-theme='max'] .bell-count { background: var(--pop-pink); color: var(--ink); border-color: var(--ink); }
+:root[data-theme='max'] .bell.has-overdue .bell-count { background: var(--bad); color: #ffffff; }
+:root[data-theme='max'] .ai-chip { border: 2px solid var(--ink); box-shadow: 2px 2px 0 var(--ink); }
+:root[data-theme='max'] .ai-chip.on { background: var(--pop-lime); color: var(--ink); }
+:root[data-theme='max'] .ai-chip.off { background: #ffffff; color: var(--text-2); border-style: dashed; }
+:root[data-theme='max'] .company-name { font-family: var(--display); font-style: italic; font-size: 1.05rem; }
+
+/* ---------- buttons: outlined, hard shadow, they press down ---------- */
+:root[data-theme='max'] button { border: 2px solid var(--ink); border-radius: 12px; background: #fffbf2; font-weight: 650; box-shadow: 2px 2px 0 var(--ink); }
+:root[data-theme='max'] button:hover:not(:disabled) { background: var(--surface-3); border-color: var(--ink); transform: translate(-1px, -1px); box-shadow: 3px 3px 0 var(--ink); }
+:root[data-theme='max'] button:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: 0 0 0 var(--ink); }
+:root[data-theme='max'] button.primary { background: var(--pop-pink); color: var(--ink); border-color: var(--ink); box-shadow: 3px 3px 0 var(--ink); font-weight: 750; }
+:root[data-theme='max'] button.primary:hover:not(:disabled) { background: #ff6fae; border-color: var(--ink); filter: none; box-shadow: 4px 4px 0 var(--ink); }
+:root[data-theme='max'] button.primary kbd { background: #ffffff; border-color: var(--ink); color: var(--ink); }
+:root[data-theme='max'] button.danger { background: var(--bad-soft); color: var(--bad); border-color: var(--ink); }
+:root[data-theme='max'] button.danger:hover:not(:disabled) { background: #ffc2bd; border-color: var(--ink); }
+:root[data-theme='max'] button.on { background: var(--pop-yellow); color: var(--ink); border-color: var(--ink); }
+/* Buttons that are really links, menu rows, tabs or cards keep their own shape. */
+:root[data-theme='max'] :is(button.ghost, button.link, .nav-item, .menu-pop button, .tabs button, .auth-tabs button, .theme-switch button,
+  .due-item, .sidebar .brand, button.company, .menu-item, button.kpi, button.tile) { box-shadow: none; }
+:root[data-theme='max'] :is(button.ghost, button.link, .menu-pop button, .tabs button, .auth-tabs button, .theme-switch button,
+  .due-item, .sidebar .brand, button.company, .menu-item) { border-color: transparent; background: transparent; }
+:root[data-theme='max'] :is(button.company, .due-item, .menu-item):hover:not(:disabled) { background: var(--surface-3); }
+:root[data-theme='max'] .sidebar .brand:hover:not(:disabled) { background: transparent; }
+:root[data-theme='max'] :is(button.ghost, button.link, .menu-pop button, .tabs button, .auth-tabs button, .theme-switch button,
+  .due-item, .sidebar .brand, button.company, .menu-item, .nav-item):is(:hover, :active):not(:disabled) { transform: none; box-shadow: none; }
+:root[data-theme='max'] button.ghost:hover:not(:disabled) { background: var(--surface-3); border-color: transparent; }
+:root[data-theme='max'] .type-switch button, :root[data-theme='max'] .entry-mode > button { border-radius: 99px; }
+:root[data-theme='max'] .type-switch button.on, :root[data-theme='max'] .type-switch button[aria-selected='true'] { background: var(--pop-yellow); color: var(--ink); border-color: var(--ink); }
+:root[data-theme='max'] .entry-mode > button.on, :root[data-theme='max'] .entry-mode > button.on:hover:not(:disabled) { background: var(--pop-pink); color: var(--ink); filter: none; box-shadow: 3px 3px 0 var(--ink); }
+
+/* ---------- fields ---------- */
+:root[data-theme='max'] :is(input, select, textarea) { border: 2px solid var(--ink); border-radius: 12px; background: #ffffff; }
+:root[data-theme='max'] :is(input, select, textarea):focus { border-color: var(--ink); box-shadow: var(--ring); }
+:root[data-theme='max'] input[type='checkbox'] { accent-color: var(--accent); }
+:root[data-theme='max'] .grid :is(input, select) { border-color: transparent; background: transparent; }
+:root[data-theme='max'] .grid :is(input, select):hover { border-color: rgba(26, 16, 51, 0.35); }
+:root[data-theme='max'] .grid :is(input, select):focus { border-color: var(--ink); background: #ffffff; box-shadow: var(--ring); }
+
+/* ---------- tables: ink header band, striped rows, pink hover ---------- */
+:root[data-theme='max'] th { background: var(--ink); color: var(--pop-yellow); border-bottom: 0; letter-spacing: 0.1em; }
+:root[data-theme='max'] th:first-child { border-top-left-radius: 0; }
+:root[data-theme='max'] :is(.list, .report) tbody tr:nth-child(even):not(.sel) > td { background: rgba(255, 210, 63, 0.12); }
+:root[data-theme='max'] :is(.list, .report) tbody tr:is([tabindex], .clickable, .ledger):hover > td,
+:root[data-theme='max'] .list.selectable tbody tr:hover > td { background: var(--accent-soft); }
+:root[data-theme='max'] tr.sel > td { background: var(--pop-yellow); }
+:root[data-theme='max'] tfoot td, :root[data-theme='max'] .report .tree-row.total td { background: var(--surface-3); border-top: 2px solid var(--ink); font-weight: 800; }
+:root[data-theme='max'] .report .tree-row.strong td { color: var(--ok); }
+
+/* ---------- tabs and switches: ink pill tracks ---------- */
+:root[data-theme='max'] :is(.tabs, .auth-tabs, .theme-switch) { background: var(--ink); border: 2px solid var(--ink); border-radius: 99px; padding: 4px; }
+:root[data-theme='max'] :is(.tabs, .auth-tabs) button { color: #fff3dc; border-radius: 99px; }
+:root[data-theme='max'] :is(.tabs, .auth-tabs) button:hover:not(:disabled) { background: rgba(255, 243, 220, 0.14); }
+:root[data-theme='max'] .tabs button.on, :root[data-theme='max'] .tabs button[aria-selected='true'] { background: var(--pop-yellow); color: var(--ink); box-shadow: none; }
+:root[data-theme='max'] .auth-tabs button.on { background: var(--pop-pink); color: var(--ink); box-shadow: none; }
+:root[data-theme='max'] .menu-pop .theme-switch button { color: #fff3dc; border-radius: 99px; }
+:root[data-theme='max'] .menu-pop .theme-switch button.on { background: var(--pop-yellow); color: var(--ink); box-shadow: none; }
+
+/* ---------- menus, dialogs, toasts ---------- */
+:root[data-theme='max'] :is(.menu-pop, .modal) { border: 2.5px solid var(--ink); border-radius: 18px; box-shadow: var(--shadow); background: #fffbf2; }
+:root[data-theme='max'] .menu-pop button:hover:not(:disabled), :root[data-theme='max'] .menu-pop button.on { background: var(--pop-yellow); color: var(--ink); }
+:root[data-theme='max'] .menu-pop hr { border-top: 2px dashed rgba(26, 16, 51, 0.3); }
+:root[data-theme='max'] .modal-backdrop {
+  background: radial-gradient(circle at 1px 1px, rgba(255, 243, 220, 0.2) 1.3px, transparent 1.6px) 0 0 / 18px 18px, rgba(43, 15, 92, 0.62);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+:root[data-theme='max'] .modal-head h2 { font-size: 1.45rem; font-style: italic; }
+:root[data-theme='max'] .toast { background: var(--ink); color: var(--pop-yellow); border: 2px solid var(--ink); border-radius: 14px; box-shadow: 4px 4px 0 var(--pop-pink); font-weight: 650; }
+:root[data-theme='max'] .toast.error { background: var(--bad); color: #ffffff; box-shadow: 4px 4px 0 var(--ink); }
+:root[data-theme='max'] .toast.info { background: var(--pop-cyan); color: var(--ink); box-shadow: 4px 4px 0 var(--ink); }
+
+/* ---------- small pieces ---------- */
+:root[data-theme='max'] :is(.tag, .pill, .status, .type-tag, .src) { border: 1.5px solid var(--ink); font-weight: 700; }
+:root[data-theme='max'] .hint-bar { background: #efe7ff; border: 2px solid var(--ink); border-left: 8px solid var(--pop-pink); color: var(--text-2); }
+:root[data-theme='max'] .warn { background: var(--warn-bg); border: 2px solid var(--ink); }
+:root[data-theme='max'] .error-box { border: 2px solid var(--ink); border-left: 8px solid var(--bad); }
+:root[data-theme='max'] .empty-state {
+  border: 2.5px dashed var(--ink); color: var(--text-2); font-weight: 600;
+  background: repeating-linear-gradient(-45deg, #fffbf2 0 12px, #fff1d6 12px 24px);
+}
+:root[data-theme='max'] .dropzone {
+  border: 3px dashed var(--ink); color: var(--ink); font-weight: 700;
+  background: repeating-linear-gradient(-45deg, #fffbf2 0 14px, #fff4c2 14px 28px);
+}
+:root[data-theme='max'] .dropzone:hover, :root[data-theme='max'] .dropzone.over { background: var(--accent-soft); color: var(--ink); border-color: var(--accent); }
+:root[data-theme='max'] .checks li + li { border-top: 2px dashed rgba(26, 16, 51, 0.18); }
+
+/* ---------- sign-in page ---------- */
+:root[data-theme='max'] .auth-page { background: var(--bg-art); }
+:root[data-theme='max'] .auth-card { box-shadow: 10px 10px 0 var(--ink); }
+:root[data-theme='max'] .auth-brand {
+  font-family: var(--display); font-style: italic; font-size: 2.3rem; color: var(--ink); -webkit-text-fill-color: var(--ink);
+  background: linear-gradient(transparent 58%, var(--pop-yellow) 58%, var(--pop-yellow) 90%, transparent 90%);
+  -webkit-background-clip: border-box; background-clip: border-box; display: inline; padding: 0 0.12em;
+}
+:root[data-theme='max'] .auth-note { border: 2px solid var(--ink); }
+
+/* The appearance switch has room for four looks. */
+.menu-pop .theme-switch { grid-template-columns: repeat(4, 1fr); }
+
+/* Long paths and keys in a tile wrap instead of running past its edge. */
+.panel code { overflow-wrap: anywhere; }
